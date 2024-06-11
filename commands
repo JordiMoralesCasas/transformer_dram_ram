@@ -1,0 +1,66 @@
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --wandb_name RAM_baseline \
+    --ckpt_dir /data/users/jmorales/model_files/RAM/baseline \
+    --epochs 10
+
+
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --wandb_name RAM_GPT2_core_small \
+    --ckpt_dir /data/users/jmorales/model_files/RAM/GPT2_core_small \
+    --epochs 200 --batch_size 512
+
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --wandb_name RAM_GTrXL_core \
+    --ckpt_dir /data/users/jmorales/model_files/RAM/GTrXL_core \
+    --epochs 200 --batch_size 512
+
+# SVHN Multi Digit
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --wandb_name DRAM_SVHN_LSTM_preprocess_patch28_4glimpses \
+    --ckpt_dir /data/users/jmorales/model_files/DRAM/SVHN_LSTM_preprocess_patch28_4glimpses \
+    --dataset svhn --core_type rnn \
+    --epochs 150 --batch_size 128 --hidden_size 1024 --cell_size 512 --std 0.03 \
+    --init_lr 0.01 --num_glimpses 4 --momentum 0.9 --patch_size 28
+
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --wandb_name DRAM_SVHN_GPT2_preprocess_patch28_2 \
+    --ckpt_dir /data/users/jmorales/model_files/DRAM/SVHN_GPT2_preprocess_patch28_2 \
+    --dataset svhn --core_type transformer \
+    --epochs 150 --batch_size 128 --hidden_size 1024 --cell_size 512 --std 0.05 \
+    --init_lr 0.00001 --num_glimpses 3 --optimizer adamw --patch_size 28 --inner_size 1024 \
+    --weight_decay 0.01 --transformer_model gpt2
+
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --wandb_name DRAM_SVHN_TRXL_preprocess_patch28_bestsweep \
+    --ckpt_dir /data/users/jmorales/model_files/DRAM/SVHN_TRXL_preprocess_patch28_bestsweep \
+    --dataset svhn --core_type transformer \
+    --epochs 150 --batch_size 128 --hidden_size 1024 --cell_size 512 --std 0.01 \
+    --init_lr 0.00005 --num_glimpses 3 --optimizer adamw --patch_size 28 --inner_size 1024 \
+    --weight_decay 0.001 --transformer_model trxl
+
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --wandb_name DRAM_SVHN_GTrXL_preprocess_patch28_smallest \
+    --ckpt_dir /data/users/jmorales/model_files/DRAM/SVHN_GTrXL_preprocess_patch28_smallest \
+    --dataset svhn --core_type transformer \
+    --epochs 150 --batch_size 128 --hidden_size 512 --cell_size 512 --std 0.01 \
+    --init_lr 0.00005 --num_glimpses 3 --optimizer adamw --patch_size 28 --inner_size 1024 \
+    --weight_decay 0.001 --transformer_model gtrxl
+
+
+# Gridsearch
+CUDA_VISIBLE_DEVICES=7 python main_gridsearch.py --dataset svhn 
+
+# Test model
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --dataset svhn --core_type transformer --transformer_model gpt2 \
+    --batch_size 128 --hidden_size 1024 --cell_size 512 --std 0.03 --inner_size 1024\
+    --num_glimpses 3 --patch_size 28 --is_train False --save_results True \
+    --ckpt_dir /data/users/jmorales/model_files/DRAM/SVHN_GPT2_preprocess_patch28
+
+
+
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --dataset svhn --core_type transformer \
+    --epochs 1 --batch_size 128 --hidden_size 1024 --cell_size 512 --std 0.05 \
+    --init_lr 0.000005 --num_glimpses 3 --optimizer adamw --patch_size 28 --inner_size 1024 \
+    --weight_decay 0 --transformer_model gtrxl
