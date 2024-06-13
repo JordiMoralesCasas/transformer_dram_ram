@@ -39,7 +39,7 @@ core_arg.add_argument(
     "--core_type", type=str, default="transformer",choices=["transformer", "rnn"], help="Type of core network to use."
 )
 core_arg.add_argument(
-    "--transformer_model", type=str, default="gpt2",choices=["gpt2", "trxl", "gtrxl"], help="Type of Transformer architecture."
+    "--transformer_model", type=str, default="gpt2",choices=["gpt2", "trxl", "gtrxl", "DRAMLM"], help="Type of Transformer architecture."
     )
 core_arg.add_argument(
     "--num_glimpses", type=int, default=6, help="# of glimpses, i.e. BPTT iterations"
@@ -69,13 +69,19 @@ reinforce_arg.add_argument(
     "--rl_loss_coef", type=float, default=0.01, help="Coeficient that weights the REINFORCE loss term."
 )
 
+# Inference (LM) params
+inference_arg = add_argument_group("Inference Params")
+inference_arg.add_argument(
+    "--max_length", type=int, default=5, help="maximum answer length to be produced during inference."
+)
+
 # data params
 data_arg = add_argument_group("Data Params")
 data_arg.add_argument(
     "--dataset",
     type=str,
     default="mnist",
-    choices=["mnist", "svhn"],
+    choices=["mnist", "svhn", "docile"],
     help="Dataset to use.",
 )
 data_arg.add_argument(
@@ -96,7 +102,7 @@ data_arg.add_argument(
 data_arg.add_argument(
     "--num_workers",
     type=int,
-    default=8,
+    default=4,
     help="# of subprocesses to use for data loading",
 )
 data_arg.add_argument(
@@ -110,6 +116,12 @@ data_arg.add_argument(
     type=str2bool,
     default=False,
     help="Whether to visualize a sample grid of the data",
+)
+data_arg.add_argument(
+    "--ignore_index",
+    type=int,
+    default=-100,
+    help="Index to be ignored during loss computation",
 )
 
 
@@ -153,6 +165,12 @@ train_arg.add_argument(
 
 # other params
 misc_arg = add_argument_group("Misc.")
+data_arg.add_argument(
+    "--debug_run",
+    type=str2bool,
+    default=False,
+    help="Run a DEBUG RUN.",
+)
 misc_arg.add_argument(
     "--use_gpu", type=str2bool, default=True, help="Whether to run on the GPU"
 )

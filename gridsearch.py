@@ -1,10 +1,10 @@
 import torch
 
-import utils
-import data_loader
+import trainers.utils as utils
+import data.data_loaders as data_loaders
 
-from trainer_mnist import MNISTTrainer
-from trainer_svhn import SVHNTrainer
+from trainers.trainer_mnist import MNISTTrainer
+from trainers.trainer_svhn import SVHNTrainer
 from config import get_config
 
 import wandb
@@ -52,7 +52,7 @@ def main():
         # Load MNIST 
         train_dloader = None
         if config.is_train:
-            train_dloader = data_loader.get_train_valid_loader_mnist(
+            train_dloader = data_loaders.get_train_valid_loader_mnist(
                 config.data_dir,
                 config.batch_size,
                 config.random_seed,
@@ -61,7 +61,7 @@ def main():
                 config.show_sample,
                 **kwargs,
             )
-        test_dloader = data_loader.get_test_loader_mnist(
+        test_dloader = data_loaders.get_test_loader_mnist(
             config.data_dir, config.batch_size, **kwargs,
         )
         # Initialize Trainer for MNIST Dataset
@@ -71,7 +71,7 @@ def main():
         config.data_dir = "/data/users/jmorales/svhn/"
         train_dloader = None
         if config.is_train:
-            train_dloader = data_loader.get_train_valid_loader_svhn(
+            train_dloader = data_loaders.get_train_valid_loader_svhn(
                 config.data_dir,
                 config.batch_size,
                 config.random_seed,
@@ -79,7 +79,7 @@ def main():
                 do_preprocessing=config.preprocess,
                 **kwargs,
             )
-        test_dloader = data_loader.get_test_loader_svhn(
+        test_dloader = data_loaders.get_test_loader_svhn(
             config.data_dir, config.batch_size, do_preprocessing=config.preprocess,**kwargs,
         )
         # Initialize Trainer for SVHN Dataset

@@ -12,8 +12,8 @@ from tqdm import tqdm
 from torch.optim.lr_scheduler import ReduceLROnPlateau, ExponentialLR
 import wandb
 
-from model import DeepRecurrentAttention
-from utils import AverageMeter
+from modelling.model import DeepRecurrentAttention
+from trainers.utils import AverageMeter
 
 
 class SVHNTrainer:

@@ -1,5 +1,5 @@
 import numpy as np
-from utils import plot_images
+from trainers.utils import plot_images
 import random
 import os
 import pickle
@@ -13,6 +13,9 @@ from torch.utils.data import DataLoader
 from data.svhn.svhn_dataset import SVHNDataset
 from data.svhn.svhn_collator import DataCollatorForSVHN
 from data.svhn.svhn_utils import DigitStructFile
+
+from data.docile.docile_collator import DataCollator
+from data.docile.docile_dataset import DocILEDataset
 
 
 def get_train_valid_loader_mnist(
@@ -30,16 +33,16 @@ def get_train_valid_loader_mnist(
     If using CUDA, num_workers should be set to 1 and pin_memory to True.
 
     Args:
-        data_dir: path directory to the dataset.
-        batch_size: how many samples per batch to load.
-        random_seed: fix seed for reproducibility.
-        valid_size: percentage split of the training set used for
+        data_dir (path): path directory to the dataset.
+        batch_size (int): how many samples per batch to load.
+        random_seed (int): fix seed for reproducibility.
+        valid_size (float): percentage split of the training set used for
             the validation set. Should be a float in the range [0, 1].
             In the paper, this number is set to 0.1.
-        shuffle: whether to shuffle the train/validation indices.
-        show_sample: plot 9x9 sample grid of the dataset.
-        num_workers: number of subprocesses to use when loading the dataset.
-        pin_memory: whether to copy tensors into CUDA pinned memory. Set it to
+        shuffle (bool): whether to shuffle the train/validation indices.
+        show_sample (bool): plot 9x9 sample grid of the dataset.
+        num_workers (int): number of subprocesses to use when loading the dataset.
+        pin_memory (bool): whether to copy tensors into CUDA pinned memory. Set it to
             True if using GPU.
     """
     error_msg = "[!] valid_size should be in the range [0, 1]."
@@ -141,13 +144,17 @@ def get_train_valid_loader_svhn(
     """Train and validation data loaders for the SVHN Dataset.
 
     Args:
-        data_dir: path directory to the dataset.
-        batch_size: how many samples per batch to load.
-        random_seed: fix seed for reproducibility.
-        show_sample: plot 9x9 sample grid of the dataset.
-        num_workers: number of subprocesses to use when loading the dataset.
-        pin_memory: whether to copy tensors into CUDA pinned memory. Set it to
-            True if using GPU.
+        data_dir (str): path directory to the dataset.
+        batch_size (int): how many samples per batch to load.
+        random_seed (int): fix seed for reproducibility.
+        show_sample (bool): plot 9x9 sample grid of the dataset.
+        num_workers (ing): number of subprocesses to use when loading 
+            the dataset.
+        pin_memory (bool): hether to copy tensors into CUDA pinned 
+            memory. Set it to True if using GPU.
+        do_preprocessing (bool): Wether to apply the preprocessing
+            method (crop around digits, resize and random/center crop).
+        
     """
     # Get Train and Validation data
     if not os.path.exists(data_dir + "train_data.pkl"):
@@ -232,11 +239,13 @@ def get_test_loader_svhn(data_dir, batch_size, num_workers=4, pin_memory=False, 
     """Test dataloader for the SVHN Dataset.
 
     Args:
-        data_dir: path directory to the dataset.
-        batch_size: how many samples per batch to load.
-        num_workers: number of subprocesses to use when loading the dataset.
-        pin_memory: whether to copy tensors into CUDA pinned memory. Set it to
+        data_dir (str): path directory to the dataset.
+        batch_size (int): how many samples per batch to load.
+        num_workers (int): number of subprocesses to use when loading the dataset.
+        pin_memory (bool): whether to copy tensors into CUDA pinned memory. Set it to
             True if using GPU.
+        do_preprocessing (bool): Wether to apply the preprocessing
+            method (crop around digits, resize and random/center crop).
     """
 
     # Get Test data
@@ -272,3 +281,98 @@ def get_test_loader_svhn(data_dir, batch_size, num_workers=4, pin_memory=False, 
         batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
     return train_loader
+
+
+def get_docile_loader(
+    data_dir: str,
+    image_dir: str,
+    batch_size: int,
+    split: str,
+    shuffle: bool,
+    device: str,
+    tokenizer: object,
+    show_sample: bool = False,
+    num_workers: int = 4,
+    pin_memory: bool = False,
+    debug_run: bool = False
+):
+    """
+    Create the dataloader for the desired split (train/test/val) of
+    the DocILE dataset - Reading task with preprocessing (crop around
+    answers).
+
+    Args:
+        data_dir (str): path to the directory that contains the json files
+            for the training, validation and testing data.
+        image_dir (str): path directory where the dataset images are stored.
+        batch_size: how many samples per batch to load.
+        split (str): which split this dataloader is for
+        shuffle (bool): wether to shuffle or not the data.
+        device (str): current device
+        tokenizer (obj): class to tokenize the data
+        image_processor (obj): class to process the input images
+        show_sample: plot 9x9 sample grid of the dataset.
+        num_workers: number of subprocesses to use when loading the dataset.
+        pin_memory: whether to copy tensors into CUDA pinned memory. Set it to
+            True if using GPU.
+        debug_run (bool): This is a debugging run. Use only a small sample of data.
+
+    Returns:
+        Torch Dataloader.
+    """
+    assert split in ["train", "val", "test"]
+    
+    # define image transforms. Random crop during training, center crop else
+    if split == "train":
+        transf = transforms.Compose([
+            transforms.Grayscale(),
+            transforms.Resize((128, 128)),
+            transforms.RandomCrop((96, 96)),
+            transforms.ToTensor(), 
+            transforms.Normalize((0.1307,), (0.3081,))])
+    else:
+        transf = transforms.Compose([
+            transforms.Grayscale(),
+            transforms.Resize((128, 128)),
+            transforms.CenterCrop((96, 96)),
+            transforms.ToTensor(), 
+            transforms.Normalize((0.1307,), (0.3081,))])
+
+    # load dataset
+    data_file = f"{split}_set_length_5.json"
+    dataset = DocILEDataset(
+        data_path=os.path.join(data_dir, data_file),
+        image_dir=image_dir,
+        transforms=transf,
+        debug_run=debug_run
+    )
+
+    # initialize data collator
+    data_collator = DataCollator(
+        tokenizer=tokenizer, 
+        return_img_path=split == "test",
+        device=device
+        )
+
+    loader = DataLoader(
+        dataset, shuffle=shuffle,
+        collate_fn=data_collator, 
+        num_workers=num_workers, batch_size=batch_size)
+
+    # visualize some images
+    if show_sample:
+        sample_loader = DataLoader(
+            dataset,
+            batch_size=9,
+            shuffle=True,
+            collate_fn=data_collator(),
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
+        data_iter = iter(sample_loader)
+        batch = next(data_iter)
+        X = batch.pixel_values.numpy()
+        X = np.transpose(X, [0, 2, 3, 1])
+        #plot_images(X, batch.labels)
+
+    return loader

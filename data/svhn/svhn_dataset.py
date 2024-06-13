@@ -4,23 +4,23 @@ from PIL import Image
 
 class SVHNDataset(torch.utils.data.Dataset):
     """
-    Dataset object for the "Synthetic box detection dataset".
-
-    Attributes:
-        image_folder (str):
-            Path to image folder
-        label_folder (str):
-            Path to GT labels folder
-
+    Dataset object for the multiple digit recognition
+    task on the SVHN dataset.
     """
+    
     def __init__(self, root_folder: str, split_data: list[dict], transforms, do_preprocessing=False):
         """
         Initialize a Synthethic Dataset object
         Args:
-            root_folder (str):
-                Path to image folder
-            label_folder (str):
-                Path to GT labels folder
+            root_folder (str): path to the directory where SVHN
+                images are.
+            split_data (str): path to the pickle file containing
+                data of the current split.
+            transforms (torchvision.transform): Transforms to be 
+                applied to the images.
+            do_preprocessing (bool): Wether to do preprocessing step
+                on the images. See 'preprocess' method for more details.
+            
         """
         self.root_folder = root_folder
         self.split_data = split_data
@@ -70,8 +70,7 @@ class SVHNDataset(torch.utils.data.Dataset):
         Get dataset example given an index.
 
         Args:
-            index (int):
-                index of the desired dataset example
+            index (int): index of the desired dataset example
 
         Returns:
             dict: Dataset example

@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.distributions import Normal
-from transformers import GPT2Model, AutoConfig, TransfoXLModel
-from utils import PositionalEncoding2D
-from gtrxl import GTrXL_wrapper as GTrXL
+from transformers import GPT2Model, AutoConfig, TransfoXLModel, GPT2LMHeadModel
+from trainers.utils import PositionalEncoding2D, shift_right
+from modelling.gtrxl import GTrXL_wrapper as GTrXL
 
 class Retina:
     """A visual retina.
@@ -500,6 +500,23 @@ class CoreNetworkDoubleTransformer(nn.Module):
                 }
             self.tr1 = GTrXL(**config)
             self.tr2 = GTrXL(**config)
+        elif transformer_model == "DRAMLM":
+             ## Answer module        
+            gpt2 = GPT2LMHeadModel.from_pretrained("gpt2")
+            self.tr1 = gpt2.transformer
+            self.lm_head = gpt2.lm_head
+            self.text_embeddings = gpt2.transformer.wte
+            
+            config = {
+                "input_dim": self.hidden_size,
+                "head_dim": self.hidden_size,
+                "embedding_dim": self.hidden_size,
+                "memory_len": 0, # We already implement our own memory
+                "head_num": n_heads,
+                "mlp_num": 1,
+                "layer_num": 1
+                }
+            self.tr2 = GTrXL(**config)
 
         # We will store the past glimpses in this variable
         self.past_states = None
@@ -517,6 +534,62 @@ class CoreNetworkDoubleTransformer(nn.Module):
         output = self.tr2(inputs_embeds=self.past_states)
         h_t_2 = output.last_hidden_state[:, -1, :]
         return h_t_2
+    
+    def lm_answer(self, label_ids, decoder_attention_mask, pad_token_id, decoder_start_token_id):
+        # Answer generation phase. Take decoder labels, generate and 
+        # return answer prediction.
+        # (For inference: maybe create a method which takes the <start> embeddings,
+        # does the loop and return the generated tokens)
+
+        decoder_input_ids = shift_right(label_ids, pad_token_id=pad_token_id, decoder_start_token_id=decoder_start_token_id)
+        decoder_inputs_embeds = self.text_embeddings(decoder_input_ids)
+
+        b, l, h = decoder_inputs_embeds.shape
+
+        # extend attention mask to cover previous glimpses
+        decoder_attention_mask = torch.cat([
+            torch.ones(self.past_glimpses.shape[:2], device=decoder_attention_mask.device),
+            decoder_attention_mask
+            ], axis=1)
+
+        # Join glimpse and text embeddings
+        self.past_glimpses = torch.cat([
+            self.past_glimpses, 
+            decoder_inputs_embeds
+            ], axis=1)
+        
+        # Compute next hidden state
+        output = self.tr1(
+            inputs_embeds=self.past_glimpses
+            )
+        return output.last_hidden_state[:, -l:, :]
+    
+    def get_token_output(self, tokens):
+        """
+        Compute the embeddins for the input tokens, pass them through the
+        decoder and return the resulting hidden states.
+
+        Args:
+            token: 1d tensor (batch_size, ) containing the token ids to
+              process.
+
+        Return:
+            2d tensor (batch_size, hidden_size) containing the encoder's
+            output hidden states for the input tokens.
+              
+        """
+        token_embeds = self.text_embeddings(tokens)
+
+        # Join glimpse and text embeddings
+        self.past_glimpses = torch.cat([
+            self.past_glimpses, 
+            token_embeds[:, None, :]
+            ], axis=1)
+
+        output = self.tr1(
+            inputs_embeds=self.past_glimpses
+            )
+        return output.last_hidden_state[:, -1, :]
 
     def forward(self, g_t):
         # We need to keep track of all the transformer's inputs.
@@ -540,7 +613,7 @@ class CoreNetworkDoubleTransformer(nn.Module):
         output = self.tr2(inputs_embeds=self.past_states)
         h_t_2 = output.last_hidden_state[:, -1, :]
 
-        return (h_t_1, h_t_2) 
+        return (h_t_1, h_t_2)         
 
 class ActionNetwork(nn.Module):
     """The action network.
@@ -684,10 +757,10 @@ class ContextNetwork(nn.Module):
             the input image.
     """
     
-    def __init__(self, hidden_size, kernel_sizes=(5,3,3)):
+    def __init__(self, hidden_size, stride, kernel_sizes=(5,3,3)):
         super().__init__()
 
-        self.conv1 = nn.Conv2d(1, 64, kernel_size=kernel_sizes[0])
+        self.conv1 = nn.Conv2d(1, 64, stride=stride, kernel_size=kernel_sizes[0])
         self.conv2 = nn.Conv2d(64, 64, kernel_size=kernel_sizes[1])
         self.conv3 = nn.Conv2d(64, 128, kernel_size=kernel_sizes[2])
         self.pool = nn.MaxPool2d((2,2))

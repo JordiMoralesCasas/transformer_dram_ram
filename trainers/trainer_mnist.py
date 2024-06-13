@@ -11,8 +11,8 @@ from tqdm import tqdm
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import wandb
 
-from model import RecurrentAttention
-from utils import AverageMeter
+from modelling.model import RecurrentAttention
+from trainers.utils import AverageMeter
 
 
 class MNISTTrainer:

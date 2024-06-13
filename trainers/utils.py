@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import torch
 import torch.nn as nn
+from anls import anls_score
 
 from PIL import Image
 
@@ -39,6 +40,78 @@ class AverageMeter:
         self.count += n
         self.avg = self.sum / self.count
 
+class NLSScorer:
+    def __init__(self, tokenizer, threshold=0.5):
+        self.tokenizer = tokenizer
+        self.threshold = threshold
+
+    def id_to_str(self, batch_ids):
+        strings = [
+            self.tokenizer.decode(ids, clean_up_tokenization_spaces=True, skip_special_tokens=True) 
+            for ids in batch_ids
+        ]
+        return strings
+
+    def compute_anls(self, pred, true):
+        """
+        Wrapper for the "anls score" function with a single answer.
+
+        Args:
+            pred (str): Predicted answer
+            true (str): Ground truth answer
+
+        Return: 
+            NLS score
+        """
+        anls = anls_score(
+            prediction=pred, 
+            gold_labels=[true], 
+            threshold=self.threshold
+            )
+        return anls
+    
+    def __call__(self, pred_ids, label_ids):
+        pred_strs = self.id_to_str(pred_ids)
+        label_strs = self.id_to_str(label_ids)
+        nls_scores = [
+            self.compute_anls(p, gt) for p, gt in zip(pred_strs, label_strs)
+        ]
+        
+        return torch.tensor(nls_scores)
+
+
+class AccScorer:
+    def __init__(self, pad_token_id):
+        self.pad_token_id = pad_token_id
+    
+    def ensure_same_length(self, pred_ids, label_ids):
+        # Ensure pred_ids and label_ids have the same length
+        b, len_p = pred_ids.shape
+        b, len_l = label_ids.shape
+
+        if len_p > len_l:
+            # If the prediction is longer, crop to the same length
+            # as the labels
+            pred_ids = pred_ids[:, :len_l]
+        elif len_p < len_l:
+            # If the prediction is shorter, add padding until the same
+            # length as the labels
+            pred_ids = torch.cat([
+                pred_ids,
+                torch.full((b, len_l - len_p), fill_value=self.pad_token_id, device=pred_ids.device)
+            ], axis=1)
+        return pred_ids, label_ids
+    
+    def __call__(self, pred_ids, label_ids):
+        pred_ids, label_ids = self.ensure_same_length(pred_ids, label_ids)
+
+        # Compute accuracy
+        acc = (pred_ids.detach() == label_ids).float()
+        pad_mask = label_ids != self.pad_token_id
+        acc[~pad_mask] = 0
+        acc = acc.sum(axis=1) / pad_mask.sum(axis=1)
+        
+        return acc
 
 def resize_array(x, size):
     # 3D and 4D tensors allowed only
@@ -199,3 +272,21 @@ class PositionalEncoding2D(nn.Module):
         
         # Add positional embeddings to the input visual embeddings
         return vis_embeddings + pos_emb
+
+
+# Based on "_shift_right()" from https://github.com/huggingface/transformers/blob/v4.41.2/src/transformers/models/t5/modeling_t5.py#L872
+def shift_right(input_ids, decoder_start_token_id, pad_token_id):
+    """# shift inputs to the right
+    if is_torch_fx_proxy(input_ids):
+        # Item assignment is not supported natively for proxies.
+        shifted_input_ids = torch.full(input_ids.shape[:-1] + (1,), decoder_start_token_id)
+        shifted_input_ids = torch.cat([shifted_input_ids, input_ids[..., :-1]], dim=-1)
+    else:"""
+    shifted_input_ids = input_ids.new_zeros(input_ids.shape)
+    shifted_input_ids[..., 1:] = input_ids[..., :-1].clone()
+    shifted_input_ids[..., 0] = decoder_start_token_id
+
+    # replace possible -100 values in labels by `pad_token_id`
+    shifted_input_ids.masked_fill_(shifted_input_ids == -100, pad_token_id)
+
+    return shifted_input_ids

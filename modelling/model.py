@@ -1,9 +1,12 @@
 import torch.nn as nn
 import torch
 
-import modules
+import modelling.modules as modules
 
 
+"""
+ Based on https://github.com/kevinzakka/recurrent-visual-attention/blob/master/model.py
+"""
 class RecurrentAttention(nn.Module):
     """A Recurrent Model of Visual Attention (RAM) [1].
 
@@ -117,7 +120,7 @@ class DeepRecurrentAttention(nn.Module):
     """
 
     def __init__(
-        self, g, k, s, c, h_g, h_l, std, hidden_size, cell_size, inner_size, n_heads, num_classes, core_type, device, transformer_model
+        self, g, k, s, c, h_g, h_l, std, hidden_size, cell_size, inner_size, n_heads, num_classes, core_type, device, transformer_model, max_length
     ):
         """Constructor.
 
@@ -134,16 +137,20 @@ class DeepRecurrentAttention(nn.Module):
           num_glimpses: number of glimpses to take per image,
             i.e. number of BPTT steps.
           core_type: Type of core network to use (RNN or Transformer).
-          pretrained_model: What Transformer architecture to use
+          device: Current device
+          transformer_model: Which transformer core to use (gpt2, trxl, gtrxl or DRAMLM)
         """
         super().__init__()
 
         self.std = std
         self.device = device
-        self.context = modules.ContextNetwork(hidden_size)
+        self.context = modules.ContextNetwork(hidden_size, stride=2 if transformer_model == "DRAMLM" else 1)
         self.sensor = modules.GlimpseNetworkDRAM(g, k, s, c, hidden_size, core_type=core_type)
         self.hidden_size = hidden_size
         self.cell_size = cell_size
+        
+        # Max length of generated answer (used only for the DRAM LM model)
+        self.max_length = max_length 
         self.core_type = core_type
         if core_type == "rnn":
             self.core = modules.CoreNetworkLSTM(hidden_size, hidden_size)
@@ -151,7 +158,8 @@ class DeepRecurrentAttention(nn.Module):
             self.core = modules.CoreNetworkDoubleTransformer(hidden_size, hidden_size, inner_size, n_heads, transformer_model)
             
         self.locator = modules.LocationNetwork(hidden_size, 2, std)
-        self.classifier = modules.ActionNetwork(hidden_size, num_classes)
+        if num_classes:
+            self.classifier = modules.ActionNetwork(hidden_size, num_classes)
         self.baseliner = modules.BaselineNetwork(hidden_size, 1)
 
     def reset_transformers_buffer(self, batch_size):
@@ -163,6 +171,60 @@ class DeepRecurrentAttention(nn.Module):
             (batch_size, 0, self.hidden_size), device=self.device)
         self.core.past_states = torch.empty(
             (batch_size, 0, self.hidden_size), device=self.device)
+        
+    def lm_answer(self, label_ids, decoder_attention_mask, pad_token_id, decoder_start_token_id):
+        lm_output = self.core.lm_answer(
+                label_ids=label_ids,
+                decoder_attention_mask=decoder_attention_mask,
+                pad_token_id=pad_token_id,
+                decoder_start_token_id=decoder_start_token_id)
+        lm_log_probas = self.core.lm_head(lm_output)
+        return lm_log_probas
+    
+    def infer_answer(self, batch_size: int, start_token_id, eos_token_id, pad_token_id):
+        """
+        Autoregressively generate a sequence of tokens (answer token ids)
+
+        Args:
+            batch_size: size of the mini batches.
+
+        Returns:
+            2d tensor (batch_size, seq_len) containing the ids
+                for the generated answers.
+
+        """
+        predicted_tokens = []
+        predicted_logits = []
+        running_sequences = torch.ones((batch_size, ), device=self.device, dtype=torch.bool)
+        
+        # start generation token
+        next_token = torch.full((batch_size, ), fill_value=start_token_id, device=self.device)
+        for i in range(self.max_length):
+            # get output for current token
+            output = self.core.get_token_output(next_token)
+
+            # compute logits
+            next_logits = self.core.lm_head(output)
+
+            # get next token
+            next_token = torch.argmax(next_logits, dim=1)
+
+            # mask tokens predicted by finished sequences
+            next_token[~running_sequences] = pad_token_id
+
+            # save token
+            predicted_tokens.append(next_token)
+            predicted_logits.append(next_logits)
+
+            # if a sequence predicts the "end token", stop that sequence
+            running_sequences = torch.mul(running_sequences, next_token != eos_token_id)
+
+        # Get sequence of predicted tokens
+        pred_ids = torch.stack(predicted_tokens).transpose(0, 1)
+        # Also get sequence of predicted tokens
+        pred_embeds = torch.stack(predicted_logits).transpose(0, 1)
+        
+        return pred_ids, pred_embeds
 
     def forward(self, x, l_t_prev, out_prev, first=False, last=False):
         """Run RAM for one timestep on a minibatch of images.

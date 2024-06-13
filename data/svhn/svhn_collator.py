@@ -13,15 +13,11 @@ from dataclasses import dataclass
 @dataclass
 class DataCollatorForSVHN:
     """
-    Data collator class for the box extraction task on our synthetic dataset.
+    Data collator class for the multiple digit recognition
+    task on the SVHN dataset.
 
-    Arguments:
-        imageProcessor (ViTImageProcessor): 
-            ImageProcessor object
-        tokenizer (T5TokenizerFast): 
-            Tokenzier object
-        model (nn.Module): 
-            Model instance
+    returns:
+        mini-batch sample.
     """
     
     def __call__(self, batch: List[dict]) -> BatchEncoding:

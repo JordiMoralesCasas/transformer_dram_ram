@@ -64,3 +64,28 @@ CUDA_VISIBLE_DEVICES=7 python main.py \
     --epochs 1 --batch_size 128 --hidden_size 1024 --cell_size 512 --std 0.05 \
     --init_lr 0.000005 --num_glimpses 3 --optimizer adamw --patch_size 28 --inner_size 1024 \
     --weight_decay 0 --transformer_model gtrxl
+
+# DocILE Reading Task with SVHN Preprocessing
+CUDA_VISIBLE_DEVICES=6 python main.py \
+    --ckpt_dir /data/users/jmorales/model_files/DocILE_DRAM/docile_ng10_bs128_ps32 \
+    --wandb docile_ng10_bs128_ps32 \
+    --dataset docile --core_type transformer \
+    --epochs 20 --batch_size 128 --hidden_size 768 --std 0.05 \
+    --init_lr 0.000005 --num_glimpses 10 --optimizer adamw --patch_size 32 --inner_size 768 \
+    --weight_decay 0 --transformer_model DRAMLM --num_workers 4
+
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --ckpt_dir /data/users/jmorales/model_files/DocILE_DRAM/docile_ng10_bs128_ps32_lr0_00005 \
+    --wandb docile_ng10_bs128_ps32 \
+    --dataset docile --core_type transformer \
+    --epochs 20 --batch_size 128 --hidden_size 768 --std 0.05 \
+    --init_lr 0.00005 --num_glimpses 10 --optimizer adamw --patch_size 32 --inner_size 768 \
+    --weight_decay 0 --transformer_model DRAMLM --num_workers 4 --max_length 20
+
+# testing it
+CUDA_VISIBLE_DEVICES=4 python main.py \
+    --ckpt_dir /data/users/jmorales/model_files/DocILE_DRAM/docile_ng10_bs128_ps32 \
+    --dataset docile --core_type transformer \
+    --batch_size 128 --hidden_size 768 --std 0.05 \
+    --num_glimpses 10 --optimizer adamw --patch_size 32 --inner_size 768 \
+    --weight_decay 0 --transformer_model DRAMLM --num_workers 4 --save_results True --is_train False
