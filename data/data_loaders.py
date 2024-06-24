@@ -14,8 +14,8 @@ from data.svhn.svhn_dataset import SVHNDataset
 from data.svhn.svhn_collator import DataCollatorForSVHN
 from data.svhn.svhn_utils import DigitStructFile
 
-from data.docile.docile_collator import DataCollator
-from data.docile.docile_dataset import DocILEDataset
+from data.docile.docile_collator import DataCollatorReading, DataCollatorOnlyImage, DataCollatorReadAnyWord
+from data.docile.docile_dataset import DocILEDataset, DocILEDatasetReadAnyWord
 
 
 def get_train_valid_loader_mnist(
@@ -281,98 +281,3 @@ def get_test_loader_svhn(data_dir, batch_size, num_workers=4, pin_memory=False, 
         batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
     return train_loader
-
-
-def get_docile_loader(
-    data_dir: str,
-    image_dir: str,
-    batch_size: int,
-    split: str,
-    shuffle: bool,
-    device: str,
-    tokenizer: object,
-    show_sample: bool = False,
-    num_workers: int = 4,
-    pin_memory: bool = False,
-    debug_run: bool = False
-):
-    """
-    Create the dataloader for the desired split (train/test/val) of
-    the DocILE dataset - Reading task with preprocessing (crop around
-    answers).
-
-    Args:
-        data_dir (str): path to the directory that contains the json files
-            for the training, validation and testing data.
-        image_dir (str): path directory where the dataset images are stored.
-        batch_size: how many samples per batch to load.
-        split (str): which split this dataloader is for
-        shuffle (bool): wether to shuffle or not the data.
-        device (str): current device
-        tokenizer (obj): class to tokenize the data
-        image_processor (obj): class to process the input images
-        show_sample: plot 9x9 sample grid of the dataset.
-        num_workers: number of subprocesses to use when loading the dataset.
-        pin_memory: whether to copy tensors into CUDA pinned memory. Set it to
-            True if using GPU.
-        debug_run (bool): This is a debugging run. Use only a small sample of data.
-
-    Returns:
-        Torch Dataloader.
-    """
-    assert split in ["train", "val", "test"]
-    
-    # define image transforms. Random crop during training, center crop else
-    if split == "train":
-        transf = transforms.Compose([
-            transforms.Grayscale(),
-            transforms.Resize((128, 128)),
-            transforms.RandomCrop((96, 96)),
-            transforms.ToTensor(), 
-            transforms.Normalize((0.1307,), (0.3081,))])
-    else:
-        transf = transforms.Compose([
-            transforms.Grayscale(),
-            transforms.Resize((128, 128)),
-            transforms.CenterCrop((96, 96)),
-            transforms.ToTensor(), 
-            transforms.Normalize((0.1307,), (0.3081,))])
-
-    # load dataset
-    data_file = f"{split}_set_length_5.json"
-    dataset = DocILEDataset(
-        data_path=os.path.join(data_dir, data_file),
-        image_dir=image_dir,
-        transforms=transf,
-        debug_run=debug_run
-    )
-
-    # initialize data collator
-    data_collator = DataCollator(
-        tokenizer=tokenizer, 
-        return_img_path=split == "test",
-        device=device
-        )
-
-    loader = DataLoader(
-        dataset, shuffle=shuffle,
-        collate_fn=data_collator, 
-        num_workers=num_workers, batch_size=batch_size)
-
-    # visualize some images
-    if show_sample:
-        sample_loader = DataLoader(
-            dataset,
-            batch_size=9,
-            shuffle=True,
-            collate_fn=data_collator(),
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-        )
-        data_iter = iter(sample_loader)
-        batch = next(data_iter)
-        X = batch.pixel_values.numpy()
-        X = np.transpose(X, [0, 2, 3, 1])
-        #plot_images(X, batch.labels)
-
-    return loader

@@ -3,7 +3,6 @@ import torch
 
 import modelling.modules as modules
 
-
 """
  Based on https://github.com/kevinzakka/recurrent-visual-attention/blob/master/model.py
 """

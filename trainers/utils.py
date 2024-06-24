@@ -112,6 +112,24 @@ class AccScorer:
         acc = acc.sum(axis=1) / pad_mask.sum(axis=1)
         
         return acc
+    
+
+class AreaScorer: # TODO: Change name? 
+    """
+    For each glimpse, get the proportion of pixels that are not white
+    """
+    def __init__(self):
+        pass
+    
+    def __call__(self, all_patches):
+        # Conver patches to grayscale (avg across all channels)
+        all_patches = all_patches.mean(dim=2)
+        
+        # get the proportion of pixels that are not white (defined by a threshold)
+        thr = 0.05
+        proportions = [(sample < 1 - thr).sum() / sample.numel() for sample in all_patches]
+        return torch.tensor(proportions)
+
 
 def resize_array(x, size):
     # 3D and 4D tensors allowed only

@@ -20,6 +20,9 @@ glimpse_arg.add_argument(
     "--patch_size", type=int, default=8, help="size of extracted patch at highest res"
 )
 glimpse_arg.add_argument(
+    "--glimpse_size", type=float, default=0.05, help="size of extracted patch at highest res"
+)
+glimpse_arg.add_argument(
     "--glimpse_scale", type=int, default=1, help="scale of successive patches"
 )
 glimpse_arg.add_argument(
@@ -78,11 +81,11 @@ inference_arg.add_argument(
 # data params
 data_arg = add_argument_group("Data Params")
 data_arg.add_argument(
-    "--dataset",
+    "--task",
     type=str,
     default="mnist",
-    choices=["mnist", "svhn", "docile"],
-    help="Dataset to use.",
+    choices=["mnist", "svhn", "docile_reading", "docile_find_text", "docile_read_any_word"],
+    help="Task to solve.",
 )
 data_arg.add_argument(
     "--preprocess",

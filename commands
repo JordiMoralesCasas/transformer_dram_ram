@@ -18,14 +18,14 @@ CUDA_VISIBLE_DEVICES=7 python main.py \
 CUDA_VISIBLE_DEVICES=7 python main.py \
     --wandb_name DRAM_SVHN_LSTM_preprocess_patch28_4glimpses \
     --ckpt_dir /data/users/jmorales/model_files/DRAM/SVHN_LSTM_preprocess_patch28_4glimpses \
-    --dataset svhn --core_type rnn \
+    --task svhn --core_type rnn \
     --epochs 150 --batch_size 128 --hidden_size 1024 --cell_size 512 --std 0.03 \
     --init_lr 0.01 --num_glimpses 4 --momentum 0.9 --patch_size 28
 
 CUDA_VISIBLE_DEVICES=7 python main.py \
     --wandb_name DRAM_SVHN_GPT2_preprocess_patch28_2 \
     --ckpt_dir /data/users/jmorales/model_files/DRAM/SVHN_GPT2_preprocess_patch28_2 \
-    --dataset svhn --core_type transformer \
+    --task svhn --core_type transformer \
     --epochs 150 --batch_size 128 --hidden_size 1024 --cell_size 512 --std 0.05 \
     --init_lr 0.00001 --num_glimpses 3 --optimizer adamw --patch_size 28 --inner_size 1024 \
     --weight_decay 0.01 --transformer_model gpt2
@@ -33,7 +33,7 @@ CUDA_VISIBLE_DEVICES=7 python main.py \
 CUDA_VISIBLE_DEVICES=7 python main.py \
     --wandb_name DRAM_SVHN_TRXL_preprocess_patch28_bestsweep \
     --ckpt_dir /data/users/jmorales/model_files/DRAM/SVHN_TRXL_preprocess_patch28_bestsweep \
-    --dataset svhn --core_type transformer \
+    --task svhn --core_type transformer \
     --epochs 150 --batch_size 128 --hidden_size 1024 --cell_size 512 --std 0.01 \
     --init_lr 0.00005 --num_glimpses 3 --optimizer adamw --patch_size 28 --inner_size 1024 \
     --weight_decay 0.001 --transformer_model trxl
@@ -41,51 +41,24 @@ CUDA_VISIBLE_DEVICES=7 python main.py \
 CUDA_VISIBLE_DEVICES=7 python main.py \
     --wandb_name DRAM_SVHN_GTrXL_preprocess_patch28_smallest \
     --ckpt_dir /data/users/jmorales/model_files/DRAM/SVHN_GTrXL_preprocess_patch28_smallest \
-    --dataset svhn --core_type transformer \
+    --task svhn --core_type transformer \
     --epochs 150 --batch_size 128 --hidden_size 512 --cell_size 512 --std 0.01 \
     --init_lr 0.00005 --num_glimpses 3 --optimizer adamw --patch_size 28 --inner_size 1024 \
     --weight_decay 0.001 --transformer_model gtrxl
 
 
 # Gridsearch
-CUDA_VISIBLE_DEVICES=7 python main_gridsearch.py --dataset svhn 
+CUDA_VISIBLE_DEVICES=7 python main_gridsearch.py --task svhn 
 
 # Test model
 CUDA_VISIBLE_DEVICES=7 python main.py \
-    --dataset svhn --core_type transformer --transformer_model gpt2 \
+    --task svhn --core_type transformer --transformer_model gpt2 \
     --batch_size 128 --hidden_size 1024 --cell_size 512 --std 0.03 --inner_size 1024\
     --num_glimpses 3 --patch_size 28 --is_train False --save_results True \
     --ckpt_dir /data/users/jmorales/model_files/DRAM/SVHN_GPT2_preprocess_patch28
 
-
-
 CUDA_VISIBLE_DEVICES=7 python main.py \
-    --dataset svhn --core_type transformer \
+    --task svhn --core_type transformer \
     --epochs 1 --batch_size 128 --hidden_size 1024 --cell_size 512 --std 0.05 \
     --init_lr 0.000005 --num_glimpses 3 --optimizer adamw --patch_size 28 --inner_size 1024 \
     --weight_decay 0 --transformer_model gtrxl
-
-# DocILE Reading Task with SVHN Preprocessing
-CUDA_VISIBLE_DEVICES=6 python main.py \
-    --ckpt_dir /data/users/jmorales/model_files/DocILE_DRAM/docile_ng10_bs128_ps32 \
-    --wandb docile_ng10_bs128_ps32 \
-    --dataset docile --core_type transformer \
-    --epochs 20 --batch_size 128 --hidden_size 768 --std 0.05 \
-    --init_lr 0.000005 --num_glimpses 10 --optimizer adamw --patch_size 32 --inner_size 768 \
-    --weight_decay 0 --transformer_model DRAMLM --num_workers 4
-
-CUDA_VISIBLE_DEVICES=7 python main.py \
-    --ckpt_dir /data/users/jmorales/model_files/DocILE_DRAM/docile_ng10_bs128_ps32_lr0_00005 \
-    --wandb docile_ng10_bs128_ps32 \
-    --dataset docile --core_type transformer \
-    --epochs 20 --batch_size 128 --hidden_size 768 --std 0.05 \
-    --init_lr 0.00005 --num_glimpses 10 --optimizer adamw --patch_size 32 --inner_size 768 \
-    --weight_decay 0 --transformer_model DRAMLM --num_workers 4 --max_length 20
-
-# testing it
-CUDA_VISIBLE_DEVICES=4 python main.py \
-    --ckpt_dir /data/users/jmorales/model_files/DocILE_DRAM/docile_ng10_bs128_ps32 \
-    --dataset docile --core_type transformer \
-    --batch_size 128 --hidden_size 768 --std 0.05 \
-    --num_glimpses 10 --optimizer adamw --patch_size 32 --inner_size 768 \
-    --weight_decay 0 --transformer_model DRAMLM --num_workers 4 --save_results True --is_train False

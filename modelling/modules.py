@@ -7,6 +7,7 @@ from transformers import GPT2Model, AutoConfig, TransfoXLModel, GPT2LMHeadModel
 from trainers.utils import PositionalEncoding2D, shift_right
 from modelling.gtrxl import GTrXL_wrapper as GTrXL
 
+
 class Retina:
     """A visual retina.
 
