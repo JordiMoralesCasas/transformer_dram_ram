@@ -14,9 +14,6 @@ from data.svhn.svhn_dataset import SVHNDataset
 from data.svhn.svhn_collator import DataCollatorForSVHN
 from data.svhn.svhn_utils import DigitStructFile
 
-from data.docile.docile_collator import DataCollatorReading, DataCollatorOnlyImage, DataCollatorReadAnyWord
-from data.docile.docile_dataset import DocILEDataset, DocILEDatasetReadAnyWord
-
 
 def get_train_valid_loader_mnist(
     data_dir,

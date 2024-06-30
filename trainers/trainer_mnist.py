@@ -22,7 +22,7 @@ class MNISTTrainer:
     config file.
     """
 
-    def __init__(self, config, train_loader=None, test_loader=None):
+    def __init__(self, config, train_loader=None, test_loader=None, is_gridsearch=False):
         """
         Construct a new Trainer instance.
 
@@ -83,7 +83,7 @@ class MNISTTrainer:
         self.lr_patience = config.lr_patience
         self.train_patience = config.train_patience
         self.wandb_name = config.wandb_name
-        self.use_wandb = True if self.wandb_name else False
+        self.use_wandb = True if (self.wandb_name or is_gridsearch) else False
         self.resume = config.resume
         self.print_freq = config.print_freq
         self.plot_freq = config.plot_freq
@@ -99,7 +99,7 @@ class MNISTTrainer:
             os.makedirs(self.plot_dir)
 
         # configure wandb logging
-        if self.use_wandb:
+        if self.use_wandb and not is_gridsearch:
             wandb.init(
                 entity="mcv_jordi",
                 project="svhn_zoom", 
@@ -124,7 +124,7 @@ class MNISTTrainer:
 
         # initialize optimizer and scheduler
         self.optimizer = torch.optim.AdamW(
-            self.model.parameters(), lr=self.config.init_lr
+            self.model.parameters(), lr=self.config.init_lr, weight_decay=config.weight_decay
         )
         self.scheduler = ReduceLROnPlateau(
             self.optimizer, "min", patience=self.lr_patience

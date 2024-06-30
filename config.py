@@ -84,7 +84,7 @@ data_arg.add_argument(
     "--task",
     type=str,
     default="mnist",
-    choices=["mnist", "svhn", "docile_reading", "docile_find_text", "docile_read_any_word"],
+    choices=["mnist", "svhn"],
     help="Task to solve.",
 )
 data_arg.add_argument(

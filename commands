@@ -3,7 +3,6 @@ CUDA_VISIBLE_DEVICES=7 python main.py \
     --ckpt_dir /data/users/jmorales/model_files/RAM/baseline \
     --epochs 10
 
-
 CUDA_VISIBLE_DEVICES=7 python main.py \
     --wandb_name RAM_GPT2_core_small \
     --ckpt_dir /data/users/jmorales/model_files/RAM/GPT2_core_small \
@@ -48,7 +47,7 @@ CUDA_VISIBLE_DEVICES=7 python main.py \
 
 
 # Gridsearch
-CUDA_VISIBLE_DEVICES=7 python main_gridsearch.py --task svhn 
+CUDA_VISIBLE_DEVICES=7 python gridsearch.py
 
 # Test model
 CUDA_VISIBLE_DEVICES=7 python main.py \

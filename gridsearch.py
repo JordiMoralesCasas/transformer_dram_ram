@@ -19,22 +19,8 @@ def main():
     config, unparsed = get_config()
     wandb_config = wandb.config
 
-    config.init_lr = wandb_config.init_lr
-    config.momentum = wandb_config.momentum
-    config.epochs = wandb_config.epochs
-    config.optimizer = wandb_config.optimizer
-    config.std = wandb_config.std
-    config.preprocess = wandb_config.preprocess
-    config.weight_decay = wandb_config.weight_decay
-    config.core_type = wandb_config.core_type
-    config.batch_size = wandb_config.batch_size
-    config.cell_size = wandb_config.cell_size
-    config.hidden_size = wandb_config.hidden_size
-    config.patch_size = wandb_config.patch_size
-    config.inner_size = wandb_config.inner_size
-    config.n_heads = wandb_config.n_heads
-    config.num_glimpses = wandb_config.num_glimpses
-    config.rl_loss_coef = wandb_config.rl_loss_coef
+    for k, v in wandb_config.items():
+        config.__dict__[k] = v
 
 
     # Ensure dirs exist
@@ -48,7 +34,7 @@ def main():
         kwargs = {"num_workers": config.num_workers, "pin_memory": True}
 
     # instantiate data loaders
-    if config.dataset == "mnist":
+    if config.task == "mnist":
         # Load MNIST 
         train_dloader = None
         if config.is_train:
@@ -104,7 +90,7 @@ if __name__ == "__main__":
     
     # Hyperparameter search config
     sweep_config = {
-        'name': 'LSTM SVHN Sweep',
+        'name': 'MNIST TrXL',
         'method': 'random',
         'metric': {
             'name': 'Test Reward',
@@ -112,45 +98,33 @@ if __name__ == "__main__":
             },
         'parameters':  {
             'core_type': {
-                'value': "rnn"},
+                'value': "transformer"},
+            'transformer_model': {
+                'value': "trxl"},
+            'task': {
+                'value': "mnist"},
             'epochs': {
-                'value': 10},
+                'value': 50},
             'batch_size': {
-                'value': 128},
-            'cell_size': {
                 'value': 512},
             'hidden_size': {
-                'value': 1024},
+                'value': 256},
             'preprocess': {
                 'value': True},
             'num_glimpses': {
-                'value': 3},
-            'optimizer': {
-                'values': ["sgd", "adamw"]},
+                'value': 6},
             'weight_decay': {
-                'value': 0.01},
+                'values': [0.0, 0.01, 0.9]},
             'std': {
-                'value': 0.01},
-            'rl_loss_coef': {
-                'values': [0.01, 0.5, 1]},
-            'momentum': {
-                'value': 0.9},
+                'values': [0.01, 0.03, 0.05]},
             'patch_size': {
-                'value': 28},
+                'value': 8},
             'init_lr': {
                 'values': [
-                    0.01, 0.025, 0.0075
-                    ]}, 
-            'inner_size': {
-                'values': [
-                    1024, # Not used
-                    ]},
-            'n_heads': {
-                'values': [
-                    1, # Not used
+                    0.00005, 0.0001, 0.0003, 0.0005, 0.001
                     ]}
-        } 
-    }
+            } 
+        }
     
     
     """sweep_config = {
@@ -251,8 +225,8 @@ if __name__ == "__main__":
     
     pprint.pprint(sweep_config)
 
-    sweep_id = wandb.sweep(sweep_config, project="svhn_zoom", entity="mcv_jordi")
-    wandb.agent(sweep_id, function=main, count=40)
+    sweep_id = wandb.sweep(sweep_config, project="mnist_zoom", entity="mcv_jordi")
+    wandb.agent(sweep_id, function=main, count=35)
 
     """
     import multiprocessing

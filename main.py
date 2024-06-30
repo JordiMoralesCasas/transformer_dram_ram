@@ -5,8 +5,6 @@ import data.data_loaders as data_loaders
 
 from trainers.trainer_mnist import MNISTTrainer
 from trainers.trainer_svhn import SVHNTrainer
-from trainers.trainer_docile_reading import DocILETrainerReading
-from trainers.trainer_docile_find_text import DocILETrainerFindText
 from config import get_config
 
 from transformers import AutoTokenizer
