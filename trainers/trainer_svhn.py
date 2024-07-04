@@ -3,6 +3,7 @@ import time
 import shutil
 import pickle
 import json
+import numpy as np
 
 import torch
 import torch.nn.functional as F
@@ -23,7 +24,7 @@ class SVHNTrainer:
     config file.
     """
 
-    def __init__(self, config, train_loader=None, test_loader=None, is_gridsearch=False):
+    def __init__(self, config, train_val_loader=None, test_loader=None, is_gridsearch=False):
         """
         Construct a new Trainer instance.
 
@@ -54,15 +55,25 @@ class SVHNTrainer:
         self.inner_size = config.inner_size
         self.n_heads = config.n_heads
 
-        # reinforce params
-        self.std = config.std
+        # reinforce params            
         self.M = config.M
         self.rl_loss_coef = config.rl_loss_coef
+        self.std = config.std
+        self.epsilon_greedy = config.epsilon_greedy
+        if self.epsilon_greedy:
+            # epsilon-gready method for exploration-exploitation
+            # eps is the probability of taking a random action ("choosing a random location")
+            self.eps = 1.0 # at the beggining, always take random location
+            self.eps_min = 0.05
+            
+            # reach the minimum eps after N steps
+            num_steps = len(train_val_loader[0])*10
+            self.eps_decay = (self.eps - self.eps_min)/num_steps
 
         # data params
-        if train_loader is not None:
-            self.train_loader = train_loader[0]
-            self.valid_loader = train_loader[1]
+        if train_val_loader is not None:
+            self.train_loader = train_val_loader[0]
+            self.valid_loader = train_val_loader[1]
             self.num_train = len(self.train_loader.dataset)
             self.num_valid = len(self.valid_loader.dataset)
         if test_loader is not None:
@@ -71,6 +82,8 @@ class SVHNTrainer:
         self.num_classes = 11
         self.num_channels = 1
         self.end_class = 0
+        
+        self.image_size = 54 if config.preprocess == "crop" else int(config.preprocess)
 
         # training params
         self.epochs = config.epochs
@@ -111,7 +124,7 @@ class SVHNTrainer:
         if self.use_wandb and not is_gridsearch:
             wandb.init(
                 entity="mcv_jordi",
-                project="svhn_zoom", 
+                project="svhn_expand_zoom", 
                 name=self.wandb_name,
                 config=config)
 
@@ -131,14 +144,15 @@ class SVHNTrainer:
             self.num_classes,
             self.core_type,
             self.device,
-            self.transformer_model
+            self.transformer_model,
+            self.image_size
         )
         self.model.to(self.device)
 
         # initialize optimizer and scheduler
         if self.optimizer == "sgd":
             self.optimizer = torch.optim.SGD(
-                self.model.parameters(), lr=self.config.init_lr, momentum=0.9
+                self.model.parameters(), lr=self.config.init_lr, momentum=self.config.momentum
             )
         else:
             self.optimizer = torch.optim.AdamW(
@@ -156,6 +170,17 @@ class SVHNTrainer:
                 'Total parameters': sum.total_params,
                 'Trainable parameters': sum.trainable_params
                 })
+
+    def epsilon_greedy_step(self):        
+        do_random = np.random.binomial(1, self.eps, 1)[0]        
+        std = 1 if do_random else self.std
+        
+        # Update the std
+        self.model.std = std
+        self.model.locator.std = std
+        
+        # Update eps
+        self.eps = max(self.eps_min, self.eps - self.eps_decay)
 
     def train(self):
         """Train the model on the training set.
@@ -239,6 +264,10 @@ class SVHNTrainer:
         with tqdm(total=self.num_train) as pbar:
             for i, batch in enumerate(self.train_loader):
                 self.optimizer.zero_grad()
+                
+                if self.epsilon_greedy:
+                    # call the epsilon greedy method
+                    self.epsilon_greedy_step()
 
                 x, y = batch.pixel_values.to(self.device), batch.labels.to(self.device)
 
@@ -273,6 +302,11 @@ class SVHNTrainer:
                 locs.append(l_t[0:9])
                 baselines.append(b_t)
                 log_pi.append(p)
+                
+                if x.shape[1] == 3:
+                    # if we have a rgb image, convert to grayscale
+                    x = x.mean(dim=1)
+                    x = x[:, None, :, :]
                 
                 num_digits = y.shape[-1]
                 for d_i in range(num_digits):
@@ -386,14 +420,24 @@ class SVHNTrainer:
                 # measure elapsed time
                 toc = time.time()
                 batch_time.update(toc - tic)
-
-                pbar.set_description(
-                    (
-                        "{:.1f}s - loss: {:.3f} - acc: {:.3f}".format(
-                            (toc - tic), loss.item(), acc.item()
+                
+                
+                if self.epsilon_greedy:
+                    pbar.set_description(
+                        (
+                            "{:.1f}s - eps: {:.3f} - loss: {:.3f} - acc: {:.3f} ".format(
+                                (toc - tic), self.eps, loss.item(), acc.item()
+                            )
                         )
                     )
-                )
+                else:
+                    pbar.set_description(
+                        (
+                            "{:.1f}s - loss: {:.3f} - acc: {:.3f}".format(
+                                (toc - tic), loss.item(), acc.item()
+                            )
+                        )
+                    )
                 pbar.update(self.batch_size)
 
                 # dump the glimpses and locs
@@ -421,6 +465,10 @@ class SVHNTrainer:
         """Evaluate the RAM model on the validation set.
         """
         self.model.eval()
+        
+        # ensure std is set correctly
+        self.model.std = self.std
+        self.model.locator.std = self.std
 
         losses = AverageMeter()
         accs = AverageMeter()
@@ -562,6 +610,10 @@ class SVHNTrainer:
         end once the model has finished training.
         """
         self.model.eval()
+        
+        # ensure std is set correctly
+        self.model.std = self.std
+        self.model.locator.std = self.std
         
         accs = AverageMeter()
         rews = AverageMeter()

@@ -51,7 +51,7 @@ def main():
             config.data_dir, config.batch_size, **kwargs,
         )
         # Initialize Trainer for MNIST Dataset
-        trainer = MNISTTrainer(config, train_loader=train_dloader, test_loader=test_dloader)
+        trainer = MNISTTrainer(config, train_loader=train_dloader, test_loader=test_dloader, is_gridsearch=True)
     else:
         # Load SVHN
         config.data_dir = "/data/users/jmorales/svhn/"
@@ -75,8 +75,7 @@ def main():
     if config.is_train:
         utils.save_config(config)
         trainer.train()
-        acc, reward = trainer.test()
-        return reward
+        trainer.test()
     # or load a pretrained model and test
     else:
         trainer.test()
@@ -90,17 +89,17 @@ if __name__ == "__main__":
     
     # Hyperparameter search config
     sweep_config = {
-        'name': 'MNIST TrXL',
+        'name': 'MNIST GPT2',
         'method': 'random',
         'metric': {
-            'name': 'Test Reward',
+            'name': 'Test Accuracy',
             'goal': 'maximize'   
             },
         'parameters':  {
             'core_type': {
                 'value': "transformer"},
             'transformer_model': {
-                'value': "trxl"},
+                'value': "gpt2"},
             'task': {
                 'value': "mnist"},
             'epochs': {

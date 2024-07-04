@@ -136,7 +136,7 @@ def get_train_valid_loader_svhn(
     show_sample=False,
     num_workers=4,
     pin_memory=False,
-    do_preprocessing=False
+    do_preprocessing=None
 ):
     """Train and validation data loaders for the SVHN Dataset.
 
@@ -152,7 +152,15 @@ def get_train_valid_loader_svhn(
         do_preprocessing (bool): Wether to apply the preprocessing
             method (crop around digits, resize and random/center crop).
         
-    """
+    """ 
+    if do_preprocessing != "crop":   
+        try:
+            do_preprocessing = int(do_preprocessing)
+        except:
+            assert False, '"do_preprocessing" must be "crop" or an integer.'
+    assert do_preprocessing == "crop" or type(do_preprocessing) == int, '"do_preprocessing" must be "crop" or an integer.'
+        
+    
     # Get Train and Validation data
     if not os.path.exists(data_dir + "train_data.pkl"):
         random.seed(random_seed)
@@ -179,7 +187,7 @@ def get_train_valid_loader_svhn(
             val_data = pickle.load(f)
 
     # define transforms
-    if do_preprocessing:
+    if do_preprocessing == "crop":
         train_trans = transforms.Compose([
             transforms.Grayscale(),
             transforms.Resize((64, 64)),
@@ -192,11 +200,17 @@ def get_train_valid_loader_svhn(
             transforms.CenterCrop((54, 54)),
             transforms.ToTensor(), 
             transforms.Normalize((0.1307,), (0.3081,))])
+    elif do_preprocessing == 224:
+        # resnet preprocessing
+        train_trans = val_trans = transforms.Compose([
+            transforms.Resize((do_preprocessing, do_preprocessing)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
     else:
         train_trans = val_trans = transforms.Compose([
-            transforms.Grayscale(),
-            transforms.Resize((64, 64)),
-            transforms.ToTensor(), 
+            transforms.Resize((do_preprocessing, do_preprocessing)),
+            transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,))])
     
     # load dataset

@@ -158,7 +158,7 @@ class GlimpseNetworkDRAM(nn.Module):
         assert g > 8, "Patch size must be greater than 8, and ideally even"
 
         # glimpse layer
-        self.conv1 = nn.Conv2d(1, 64, kernel_size=kernel_sizes[0])
+        self.conv1 = nn.Conv2d(k, 64, kernel_size=kernel_sizes[0])
         self.conv2 = nn.Conv2d(64, 64, kernel_size=kernel_sizes[1])
         self.conv3 = nn.Conv2d(64, 128, kernel_size=kernel_sizes[2])
         self.fc1 = nn.Linear(128*(g-8)*(g-8), hidden_size)
@@ -758,15 +758,22 @@ class ContextNetwork(nn.Module):
             the input image.
     """
     
-    def __init__(self, hidden_size, stride, kernel_sizes=(5,3,3)):
+    def __init__(self, hidden_size, stride, kernel_sizes=(5,3,3), img_size=54):
         super().__init__()
 
         self.conv1 = nn.Conv2d(1, 64, stride=stride, kernel_size=kernel_sizes[0])
         self.conv2 = nn.Conv2d(64, 64, kernel_size=kernel_sizes[1])
         self.conv3 = nn.Conv2d(64, 128, kernel_size=kernel_sizes[2])
         self.pool = nn.MaxPool2d((2,2))
-
-        self.fc = nn.Linear(2048, hidden_size)
+        
+        if img_size == 54:
+            final_feat_map_size = 4
+        elif img_size == 110:
+            final_feat_map_size = 5
+        elif img_size == 186:
+            final_feat_map_size = 9
+            
+        self.fc = nn.Linear(128*final_feat_map_size*final_feat_map_size, hidden_size)
 
     def forward(self, x):
         x = self.pool(self.conv1(x))

@@ -73,6 +73,7 @@ class DigitStructFile:
                 'dataset_split' : self.dataset_split
                 }
             figures = []
+            skip = False
             for j in range(len(pictDat[i]['height'])):
                 figure = {}
                 figure['height'] = pictDat[i]['height'][j]
@@ -81,6 +82,14 @@ class DigitStructFile:
                 figure['top']    = pictDat[i]['top'][j]
                 figure['width']  = pictDat[i]['width'][j]
                 figures.append(figure)
+                if figure['height'] < 0 or figure['left'] < 0 or figure['top'] < 0 or figure['width'] < 0:
+                    skip = True
+                    break
+                
+            if skip:
+                # current sample is wrongfully formated
+                continue
+                
             structCnt = structCnt + 1
             item['boxes'] = figures
             result.append(item)

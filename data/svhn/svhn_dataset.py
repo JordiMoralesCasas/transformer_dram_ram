@@ -1,6 +1,8 @@
 import torch
 import os
 from PIL import Image
+import numpy as np
+import cv2
 
 class SVHNDataset(torch.utils.data.Dataset):
     """
@@ -19,7 +21,7 @@ class SVHNDataset(torch.utils.data.Dataset):
             transforms (torchvision.transform): Transforms to be 
                 applied to the images.
             do_preprocessing (bool): Wether to do preprocessing step
-                on the images. See 'preprocess' method for more details.
+                on the images. See 'preprocess_crop' method for more details.
             
         """
         self.root_folder = root_folder
@@ -30,7 +32,7 @@ class SVHNDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.split_data)
     
-    def preprocess(self, bboxes, img):
+    def preprocess_crop(self, bboxes, img):
         """
             Follow the preprocessing mentioned in [1]:
 
@@ -63,6 +65,53 @@ class SVHNDataset(torch.utils.data.Dataset):
         img = img.crop((x1, y1, x2, y2))
 
         return img
+    
+    def preprocess_expand(self, bboxes, img):
+        
+        # convert to grayscale
+        img = img.convert('L')
+        
+        # this proportion ensures that all samples' digits have the same size as in the preprocessing
+        # method used in "preprocess_crop".
+        proportion_img = 1.3*self.do_preprocessing/64
+        
+        # Get smaller bounding box that contain all digit bounding boxes
+        x1 = int(min([i["left"] for i in bboxes]))
+        y1 = int(min([i["top"] for i in bboxes]))
+        x2 = int(max([i["left"] + i["width"] for i in bboxes]))
+        y2 = int(max([i["top"] + i["height"] for i in bboxes]))
+        
+        # get matrix containing the bbox
+        bbox_img = np.array(img)[y1:y2, x1:x2]
+        h, w = bbox_img.shape
+        
+        # compute the mean background color and create an empty background image with random noise
+        mean_background_color = np.median(
+            np.concatenate([bbox_img[:, 0], bbox_img[:, -1], bbox_img[0, :], bbox_img[-1, :]]))
+        new_img = (
+            np.random.normal(
+                loc=mean_background_color/255, scale=0.0, 
+                size=(int(h*proportion_img), int(w*proportion_img))
+                )*255).astype("uint8")
+        new_img = np.clip(new_img, a_min=0, a_max=255)
+        
+        # randomly paste the bbox on the background image or place in the center for inference
+        if True:
+            rand_x, rand_y = np.random.randint(0, new_img.shape[1]-w), np.random.randint(0, new_img.shape[0]-h)
+        else:
+            rand_x, rand_y= int((new_img.shape[1]-w)/2), int((new_img.shape[0]-h)/2)   
+        new_img[rand_y:rand_y+h, rand_x:rand_x+w] = bbox_img
+        
+        # to blur borders, we create a mask around the bbox and do inpainting
+        mask = np.zeros(new_img.shape, dtype="uint8")
+        border_size = 10
+        mask[rand_y-border_size:rand_y+h+border_size, rand_x-border_size:rand_x+w+border_size] = 1
+        mask[rand_y:rand_y+h, rand_x:rand_x+w] = 0
+        new_img = cv2.inpaint(new_img, mask, 5, cv2.INPAINT_NS)
+        
+        # convert to PIL and resize image
+        img = Image.fromarray(new_img)
+        return img
         
 
     def __getitem__(self, index):
@@ -80,8 +129,13 @@ class SVHNDataset(torch.utils.data.Dataset):
         img_path = os.path.join(self.root_folder, current_sample["dataset_split"], current_sample["filename"])
         img = Image.open(img_path)
 
-        if self.do_preprocessing:
-            img = self.preprocess(current_sample["boxes"], img)
+        if self.do_preprocessing == "crop":
+            img = self.preprocess_crop(current_sample["boxes"], img)
+        else:
+            img = self.preprocess_expand(current_sample["boxes"], img)
+            if self.do_preprocessing == 224:
+                # resnet will be used, so we need a 3-channel image
+                img = img.convert('RGB')
 
         # Apply transforms (Resize + Normalize)
         img = self.transforms(img)

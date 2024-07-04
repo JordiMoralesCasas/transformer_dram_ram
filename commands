@@ -4,9 +4,12 @@ CUDA_VISIBLE_DEVICES=7 python main.py \
     --epochs 10
 
 CUDA_VISIBLE_DEVICES=7 python main.py \
-    --wandb_name RAM_GPT2_core_small \
-    --ckpt_dir /data/users/jmorales/model_files/RAM/GPT2_core_small \
-    --epochs 200 --batch_size 512
+    --wandb_name RAM_TrXL_v2 \
+    --ckpt_dir /data/users/jmorales/model_files/RAM/RAM_TrXL_v2  \
+    --transformer_model trxl --core_type transformer --task mnist \
+    --epochs 200 --batch_size 512 --hidden_size 256 --init_lr 0.0005 \
+    --num_glimpses 6 --patch_size 8 --weight_decay 0.01 --std 0.05
+
 
 CUDA_VISIBLE_DEVICES=7 python main.py \
     --wandb_name RAM_GTrXL_core \
@@ -61,3 +64,34 @@ CUDA_VISIBLE_DEVICES=7 python main.py \
     --epochs 1 --batch_size 128 --hidden_size 1024 --cell_size 512 --std 0.05 \
     --init_lr 0.000005 --num_glimpses 3 --optimizer adamw --patch_size 28 --inner_size 1024 \
     --weight_decay 0 --transformer_model gtrxl
+
+
+# Multiscale
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --wandb_name DRAM_SVHN_GTrXL_512_patch20_2scale_lr0_0001 \
+    --ckpt_dir /data/users/jmorales/model_files/DRAM/DRAM_SVHN_GTrXL_512_patch20_2scale_lr0_0001 \
+    --task svhn --core_type transformer --transformer_model gtrxl --epochs 150 --batch_size 128 \
+    --hidden_size 512 --cell_size 512 --inner_size 1024 \
+    --init_lr 0.0001 --optimizer adamw --weight_decay 0.001 --preprocess crop \
+    --num_glimpses 3 --patch_size 20 --num_patches 2 --glimpse_scale 2 --std 0.01
+    
+
+
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --wandb_name DRAM_SVHN_LSTM_baseline_patch20_2scale \
+    --ckpt_dir /data/users/jmorales/model_files/DRAM/DRAM_SVHN_LSTM_baseline_patch20_2scale \
+    --task svhn --core_type rnn \
+    --epochs 150 --batch_size 128 --hidden_size 1024 --cell_size 512 \
+    --init_lr 0.01 --num_glimpses 3 --optimizer sgd --momentum 0.9 --std 0.03 \
+    --patch_size 20 --num_patches 2 --glimpse_scale 2
+
+
+# expand digits
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --wandb_name DRAM_SVHN_expand_186x186_std0_03_lr0_0001\
+    --ckpt_dir /data/users/jmorales/model_files/DRAM/DRAM_SVHN_expand_186x186_std0_03_lr0_0001 \
+    --task svhn --core_type transformer --transformer_model gtrxl --epochs 100 --batch_size 128 \
+    --hidden_size 768 --cell_size 512 --inner_size 1024 \
+    --init_lr 0.0001 --optimizer adamw --weight_decay 0.001 --preprocess 186 \
+    --num_glimpses 3 --patch_size 20 --num_patches 2 --glimpse_scale 2 --std 0.03 --epsilon_greedy False
+    

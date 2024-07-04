@@ -102,7 +102,7 @@ class MNISTTrainer:
         if self.use_wandb and not is_gridsearch:
             wandb.init(
                 entity="mcv_jordi",
-                project="svhn_zoom", 
+                project="mnist_zoom", 
                 name=self.wandb_name,
                 config=config)
 
@@ -427,7 +427,7 @@ class MNISTTrainer:
         correct = 0
 
         # load the best checkpoint
-        self.load_checkpoint(best=self.best)
+        #self.load_checkpoint(best=self.best)
 
         for i, (x, y) in enumerate(self.test_loader):
             x, y = x.to(self.device), y.to(self.device)

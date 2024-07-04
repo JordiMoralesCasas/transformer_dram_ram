@@ -66,6 +66,12 @@ reinforce_arg.add_argument(
     "--std", type=float, default=0.05, help="gaussian policy standard deviation"
 )
 reinforce_arg.add_argument(
+    "--epsilon_greedy",
+    type=str2bool,
+    default=False,
+    help="Whether to follow an epsilon-greedy strategy for exploration-exploitation",
+)
+reinforce_arg.add_argument(
     "--M", type=int, default=1, help="Monte Carlo sampling for valid and test sets"
 )
 reinforce_arg.add_argument(
@@ -89,9 +95,9 @@ data_arg.add_argument(
 )
 data_arg.add_argument(
     "--preprocess",
-    type=str2bool,
-    default=True,
-    help="Do SVHN the preprocessing.",
+    default="crop",
+    help='What kind of preprocessing on the SVHN dataset. If set to "crop", crop images around the digit bounding boxes. If an integer N is provided, \
+        the digits are randomly placed in an image of size NxN.',
 )
 data_arg.add_argument(
     "--valid_size",

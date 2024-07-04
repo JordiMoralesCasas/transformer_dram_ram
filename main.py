@@ -44,7 +44,7 @@ def main(config):
         config.data_dir = "/data/users/jmorales/svhn/"
         train_dloader = None
         if config.is_train:
-            train_dloader = data_loaders.get_train_valid_loader_svhn(
+            train_val_loader = data_loaders.get_train_valid_loader_svhn(
                 config.data_dir,
                 config.batch_size,
                 config.random_seed,
@@ -55,8 +55,21 @@ def main(config):
         test_dloader = data_loaders.get_test_loader_svhn(
             config.data_dir, config.batch_size, do_preprocessing=config.preprocess, **kwargs,
         )
+        
+        """for i in train_dloader[0]:
+            print(i.keys())
+            import cv2
+            import numpy as np
+            
+            img = ((i["pixel_values"][1])*255).numpy()
+            print(i["pixel_values"][1].shape)
+            cv2.imwrite("test_svhn_expand.png", np.moveaxis(img, 0, 2))
+            print(i["labels"].shape)
+            print(i["labels"][0])
+            exit(0)"""
+            
         # Initialize Trainer for SVHN Dataset
-        trainer = SVHNTrainer(config, train_loader=train_dloader, test_loader=test_dloader)
+        trainer = SVHNTrainer(config, train_val_loader=train_val_loader, test_loader=test_dloader)
 
     # either train
     if config.is_train:
