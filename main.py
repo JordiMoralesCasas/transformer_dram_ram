@@ -42,28 +42,36 @@ def main(config):
     elif config.task == "svhn":
         # Load SVHN
         config.data_dir = "/data/users/jmorales/svhn/"
-        train_dloader = None
+        train_val_loader = None
         if config.is_train:
             train_val_loader = data_loaders.get_train_valid_loader_svhn(
                 config.data_dir,
                 config.batch_size,
                 config.random_seed,
-                config.show_sample,
+                debug_run=config.debug_run,
                 do_preprocessing=config.preprocess,
+                use_encoder=config.use_encoder,
+                snapshot=config.snapshot,
                 **kwargs,
             )
         test_dloader = data_loaders.get_test_loader_svhn(
-            config.data_dir, config.batch_size, do_preprocessing=config.preprocess, **kwargs,
+            config.data_dir, 
+            config.batch_size, 
+            debug_run=config.debug_run, 
+            do_preprocessing=config.preprocess, 
+            use_encoder=config.use_encoder,
+            snapshot=config.snapshot,
+            **kwargs,
         )
         
-        """for i in train_dloader[0]:
+        """for i in train_val_loader[0]:
             print(i.keys())
             import cv2
             import numpy as np
             
-            img = ((i["pixel_values"][1])*255).numpy()
+            #img = ((i["pixel_values"][1])*255).numpy()
             print(i["pixel_values"][1].shape)
-            cv2.imwrite("test_svhn_expand.png", np.moveaxis(img, 0, 2))
+            #cv2.imwrite("test_svhn_expand.png", np.moveaxis(img, 0, 2))
             print(i["labels"].shape)
             print(i["labels"][0])
             exit(0)"""

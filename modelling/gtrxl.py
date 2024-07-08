@@ -11,11 +11,144 @@ import warnings
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+
 import treetensor
 from ding.torch_utils import GRUGatingUnit, build_normalization
-
 from ding.torch_utils.network.nn_module import fc_block
 from ding.torch_utils.network.gtrxl import PositionalEmbedding, Memory, AttentionXL
+
+
+class CrossAttentionGTrXL(torch.nn.Module):
+    """
+    Overview:
+         An implementation of the Attention mechanism used in the TransformerXL model.
+    Interfaces:
+        ``__init__``, ``forward``
+    """
+
+    def __init__(self, input_dim: int, head_dim: int, head_num: int, dropout: nn.Module) -> None:
+        """
+        Overview:
+            Initialize the AttentionXL module.
+        Arguments:
+            - input_dim (:obj:`int`): The dimensionality of the input features.
+            - head_dim (:obj:`int`): The dimensionality of each attention head.
+            - head_num (:obj:`int`): The number of attention heads.
+            - dropout (:obj:`nn.Module`): The dropout layer to use
+        """
+
+        super(CrossAttentionGTrXL, self).__init__()
+        self.head_num = head_num
+        self.head_dim = head_dim
+        self.dropout = dropout
+        self.attention_kv = fc_block(input_dim, head_dim * head_num * 2)  # key, value
+        self.attention_q = fc_block(input_dim, head_dim * head_num)  # query (not computed with past hidden states)
+        self.project = fc_block(head_dim * head_num, input_dim)  # project attention output back to input_dim
+        #self.project_pos = fc_block(input_dim, head_dim * head_num)  # project the positional embedding
+        self.scale = 1 / (head_dim ** 0.5)  # for scaled dot product attention
+
+    def _rel_shift(self, x: torch.Tensor, zero_upper: bool = False) -> torch.Tensor:
+        """
+        Overview:
+            Perform a relative shift operation on the attention score matrix.
+            Example:
+                a00 a01 a02      0 a00 a01 a02       0  a00 a01      a02  0  a10     a02  0   0
+                a10 a11 a12  =>  0 a10 a11 a12  =>  a02  0  a10  =>  a11 a12  0  =>  a11 a12  0
+                a20 a21 a22      0 a20 a21 a22      a11 a12  0       a20 a21 a22     a20 a21 a22
+                                                    a20 a21 a22
+                1) Append one "column" of zeros to the left
+                2) Reshape the matrix from [3 x 4] into [4 x 3]
+                3) Remove the first "row"
+                4) Mask out the upper triangle (optional)
+
+        .. note::
+            See the following material for better understanding:
+                https://github.com/kimiyoung/transformer-xl/issues/8
+                https://arxiv.org/pdf/1901.02860.pdf (Appendix B)
+        Arguments:
+            - x (:obj:`torch.Tensor`): The input tensor with shape (cur_seq, full_seq, bs, head_num).
+            - zero_upper (:obj:`bool`): If True, the upper-right triangle of the matrix is set to zero.
+        Returns:
+            - x (:obj:`torch.Tensor`): The input tensor after the relative shift operation, \
+                with shape (cur_seq, full_seq, bs, head_num).
+        """
+
+        x_padded = F.pad(x, [1, 0])  # step 1
+        x_padded = x_padded.view(x.size(0), x.size(1), x.size(3) + 1, x.size(2))  # step 2
+        x = x_padded[:, :, 1:].view_as(x)  # step 3
+        if zero_upper:
+            ones = torch.ones((x.size(2), x.size(3))).unsqueeze(0).unsqueeze(0)
+            x = x * torch.tril(ones.to(x.device), x.size(3) - x.size(2))  # step 4
+        return x
+
+    def forward(
+            self,
+            inputs: torch.Tensor,
+            pos_embedding: torch.Tensor,
+            encoder_hidden_states: torch.Tensor,
+            u: torch.nn.Parameter,
+            v: torch.nn.Parameter,
+            mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        Overview:
+            Compute the forward pass for the AttentionXL module.
+        Arguments:
+            - inputs (:obj:`torch.Tensor`): The attention input with shape (cur_seq, bs, input_dim).
+            - pos_embedding (:obj:`torch.Tensor`): The positional embedding with shape (full_seq, 1, full_seq).
+            - full_input (:obj:`torch.Tensor`): The concatenated memory and input tensor with shape \
+                (full_seq, bs, input_dim).
+            - u (:obj:`torch.nn.Parameter`): The content parameter with shape (head_num, head_dim).
+            - v (:obj:`torch.nn.Parameter`): The position parameter with shape (head_num, head_dim).
+            - mask (:obj:`Optional[torch.Tensor]`): The attention mask with shape (cur_seq, full_seq, 1). \
+                If None, no masking is applied.
+        Returns:
+            - output (:obj:`torch.Tensor`): The output of the attention mechanism with shape (cur_seq, bs, input_dim).
+        """
+
+        bs, dec_seq, enc_seq = inputs.shape[1], inputs.shape[0], encoder_hidden_states.shape[0]
+
+        kv = self.attention_kv(encoder_hidden_states)
+        key, value = torch.chunk(kv, 2, dim=-1)  # k and v from the encoder hidden states
+        query = self.attention_q(inputs)  # q from the decoder inputs
+        #r = self.project_pos(pos_embedding)  # full_seq x 1 x num_head*dim_head
+
+        key = key.view(enc_seq, bs, self.head_num, self.head_dim)
+        value = value.view(enc_seq, bs, self.head_num, self.head_dim)
+        query = query.view(dec_seq, bs, self.head_num, self.head_dim)
+        #r = r.view(dec_seq, self.head_num, self.head_dim)
+
+        # (query + u) * key^T
+        q_u = query + u
+        content_attn = q_u.permute(1, 2, 0, 3) @ key.permute(1, 2, 3, 0)  # bs x head_num x cur_seq x full_seq
+
+        # (query + v) * R^T
+        #q_v = query + v
+        #position_attn = q_v.permute(1, 2, 0, 3) @ r.permute(1, 2, 0)  # bs x head_num x cur_seq x full_seq
+        #position_attn = self._rel_shift(position_attn)
+
+        attn = content_attn# + position_attn  # bs x head_num x cur_seq x full_seq
+        attn.mul_(self.scale)
+
+        # fills float('-inf') where mask is True to let softmax ignore those positions.
+        if mask is not None and mask.any().item():
+            mask = mask.permute(2, 0, 1).unsqueeze(1)  # 1 x 1 x cur_seq x full_seq
+            assert mask.shape[2:] == attn.shape[2:]  # check shape of mask
+            attn = attn.masked_fill(mask, -float("inf")).type_as(attn)
+
+        attn = F.softmax(attn, dim=-1)
+        attn = self.dropout(attn)
+
+        # multiply softmax output by value
+        attn_vec = attn @ value.permute(1, 2, 0, 3)
+        attn_vec = attn_vec.permute(2, 0, 1, 3)
+
+        attn_vec = attn_vec.contiguous().view(dec_seq, bs, self.head_num * self.head_dim)
+        # cur_seq x bs x head_num * head_dim
+        output = self.dropout(self.project(attn_vec))  # cur_seq x bs x input_dim
+        return output
 
 
 class GatedTransformerXLLayer(torch.nn.Module):
@@ -34,15 +167,19 @@ class GatedTransformerXLLayer(torch.nn.Module):
             dropout: nn.Module,
             activation: nn.Module,
             gru_gating: bool = True,
-            gru_bias: float = 2.
+            gru_bias: float = 2.,
+            do_crossattention: bool = False
     ) -> None:
         super(GatedTransformerXLLayer, self).__init__()
+        self.do_crossattention = do_crossattention
         self.dropout = dropout
         # Decide whether to use GRU-gating.
         self.gating = gru_gating
         if self.gating is True:
             self.gate1 = GRUGatingUnit(input_dim, gru_bias)
             self.gate2 = GRUGatingUnit(input_dim, gru_bias)
+            if do_crossattention:
+                self.gate_ca = GRUGatingUnit(input_dim, gru_bias)
         # Build attention block using the AttentionXL class,
         # a feed-forward network with optional dropout, and two layer normalization layers.
         self.attention = AttentionXL(
@@ -51,6 +188,14 @@ class GatedTransformerXLLayer(torch.nn.Module):
             head_num,
             dropout,
         )
+        if self.do_crossattention:
+            self.crossattention = CrossAttentionGTrXL(
+                input_dim,
+                head_dim,
+                head_num,
+                dropout,
+            )
+
         # Build Feed-Forward-Network.
         layers = []
         dims = [input_dim] + [hidden_dim] * (mlp_num - 1) + [input_dim]
@@ -63,6 +208,8 @@ class GatedTransformerXLLayer(torch.nn.Module):
         # Build layer norm.
         self.layernorm1 = build_normalization('LN')(input_dim)
         self.layernorm2 = build_normalization('LN')(input_dim)
+        if self.do_crossattention:
+            self.layernorm_ca = build_normalization('LN')(input_dim)
         self.activation = activation
 
     # delimiter
@@ -74,6 +221,7 @@ class GatedTransformerXLLayer(torch.nn.Module):
             v: torch.nn.Parameter,
             memory: torch.Tensor,
             mask: Optional[torch.Tensor] = None,
+            encoder_hidden_states: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         **Overview**:
@@ -90,11 +238,20 @@ class GatedTransformerXLLayer(torch.nn.Module):
         # In GTrXL, gating layer replace the resnet layer in TrXL.
         o1 = self.gate1(inputs, a1) if self.gating else inputs + a1
 
+        if self.do_crossattention:
+            xca = self.layernorm_ca(o1)
+            # Attention module.
+            aca = self.dropout(self.crossattention(xca, pos_embedding, encoder_hidden_states, u, v))
+            aca = self.activation(aca)
+            # In GTrXL, gating layer replace the resnet layer in TrXL.
+            oca = self.gate_ca(o1, aca) if self.gating else inputs + aca
+        else:
+            oca = o1
 
-        x2 = self.layernorm2(o1)
+        x2 = self.layernorm2(oca)
         # Feed Forward Network.
         m2 = self.dropout(self.mlp(x2))
-        o2 = self.gate2(o1, m2) if self.gating else o1 + m2
+        o2 = self.gate2(oca, m2) if self.gating else oca + m2
         return o2
 
 
@@ -118,6 +275,7 @@ class GTrXL(nn.Module):
         gru_gating: bool = True,
         gru_bias: float = 2.,
         use_embedding_layer: bool = True,
+        do_crossattention: bool = True
     ) -> None:
         super(GTrXL, self).__init__()
         assert embedding_dim % 2 == 0, 'embedding_dim={} should be even'.format(input_dim)
@@ -148,7 +306,7 @@ class GTrXL(nn.Module):
             layers.append(
                 GatedTransformerXLLayer(
                     dims[i], head_dim, dims[i+1], head_num, mlp_num, self.dropout, self.activation, gru_gating,
-                    gru_bias
+                    gru_bias, do_crossattention
                 )
             )
         self.layers = nn.Sequential(*layers)
@@ -191,7 +349,7 @@ class GTrXL(nn.Module):
             return self.memory.get()
 
     # delimiter
-    def forward(self, x: torch.Tensor, batch_first: bool = False, return_mem: bool = True) -> Dict[str, torch.Tensor]:
+    def forward(self, x: torch.Tensor, encoder_hidden_states: torch.Tensor = None, batch_first: bool = False, return_mem: bool = True) -> Dict[str, torch.Tensor]:
         """
         **Overview**:
             The forward computation graph of GTrXL.
@@ -200,6 +358,8 @@ class GTrXL(nn.Module):
         # then reshape x from  [batch_size ,sequence_length ,input_dim] to [sequence_length, batch_size, input_dim]
         if batch_first:
             x = torch.transpose(x, 1, 0)
+            if encoder_hidden_states is not None:
+                encoder_hidden_states = torch.transpose(encoder_hidden_states, 1, 0)
         cur_seq, bs = x.shape[:2]
         # Get back memory.
         memory = None if self.memory is None else self.memory.get()
@@ -259,6 +419,7 @@ class GTrXL(nn.Module):
                 self.v,
                 mask=attn_mask,
                 memory=memory[i],
+                encoder_hidden_states=encoder_hidden_states
             )
             hidden_state.append(out.clone())
         out = self.dropout(out)
@@ -292,7 +453,9 @@ class GTrXL_wrapper(nn.Module):
         activation: nn.Module = nn.ReLU(),
         gru_gating: bool = True,
         gru_bias: float = 2.,
-        use_embedding_layer: bool = True):
+        use_embedding_layer: bool = True,
+        do_crossattention: bool = False
+        ):
         super(GTrXL_wrapper, self).__init__()
 
         self.gtrxl = GTrXL(
@@ -307,11 +470,13 @@ class GTrXL_wrapper(nn.Module):
             activation = activation,
             gru_gating = gru_gating,
             gru_bias = gru_bias,
-            use_embedding_layer = use_embedding_layer
+            use_embedding_layer = use_embedding_layer,
+            do_crossattention = do_crossattention
         )
 
-    def forward(self, inputs_embeds = None):
-        outputs = self.gtrxl(x=inputs_embeds, batch_first=True, return_mem=False)
+    def forward(self, inputs_embeds=None, encoder_hidden_states=None):
+        outputs = self.gtrxl(
+            x=inputs_embeds, batch_first=True, return_mem=False, encoder_hidden_states=encoder_hidden_states)
         return treetensor.Object({"last_hidden_state": outputs.logit})
 
 

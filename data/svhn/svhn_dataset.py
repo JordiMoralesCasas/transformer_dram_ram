@@ -10,7 +10,7 @@ class SVHNDataset(torch.utils.data.Dataset):
     task on the SVHN dataset.
     """
     
-    def __init__(self, root_folder: str, split_data: list[dict], transforms, do_preprocessing=False):
+    def __init__(self, root_folder: str, split_data: list[dict], transforms=None, debug_run=False, do_preprocessing=False, snapshot=False):
         """
         Initialize a Synthethic Dataset object
         Args:
@@ -26,8 +26,11 @@ class SVHNDataset(torch.utils.data.Dataset):
         """
         self.root_folder = root_folder
         self.split_data = split_data
+        if debug_run:
+            self.split_data = self.split_data[:256]
         self.transforms = transforms
         self.do_preprocessing = do_preprocessing
+        self.snapshot = snapshot
 
     def __len__(self):
         return len(self.split_data)
@@ -133,12 +136,13 @@ class SVHNDataset(torch.utils.data.Dataset):
             img = self.preprocess_crop(current_sample["boxes"], img)
         else:
             img = self.preprocess_expand(current_sample["boxes"], img)
-            if self.do_preprocessing == 224:
+            if self.do_preprocessing == 224 and not self.snapshot:
                 # resnet will be used, so we need a 3-channel image
                 img = img.convert('RGB')
 
         # Apply transforms (Resize + Normalize)
-        img = self.transforms(img)
+        if self.transforms is not None:
+            img = self.transforms(img)
 
         # Get labels, we add an "end sequence" label (0) at the end
         labels = [int(box["label"]) for box in current_sample["boxes"]] + [0]

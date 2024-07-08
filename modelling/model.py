@@ -120,7 +120,9 @@ class DeepRecurrentAttention(nn.Module):
     """
 
     def __init__(
-        self, g, k, s, c, h_g, h_l, std, hidden_size, cell_size, inner_size, n_heads, num_classes, core_type, device, transformer_model, image_size
+        self, g, k, s, c, h_g, h_l, std, hidden_size, cell_size, inner_size, n_heads, 
+        num_classes, core_type, device, transformer_model, use_encoder, image_size,
+        snapshot
     ):
         """Constructor.
 
@@ -144,29 +146,36 @@ class DeepRecurrentAttention(nn.Module):
 
         self.std = std
         self.device = device
-        
-        
-        assert image_size in [54, 110, 186, 224]
-        if image_size == 224:
-            # Use resnet50 as our context network. Freeze all layers except the last,
-            # which is replaced by a FC layer to project features to hidden size
-            self.context = resnet18(pretrained=True)
-            for param in self.context.parameters():
-                param.requires_grad = False
-            self.context.fc = nn.Linear(512, hidden_size)
-        else:
-            strd = 2 if image_size > 54 and image_size < 224 else 1
-            self.context = modules.ContextNetwork(hidden_size, stride=strd, img_size=image_size)
-            
-        self.sensor = modules.GlimpseNetworkDRAM(g, k, s, c, hidden_size, core_type=core_type)
+        self.use_encoder = use_encoder
         self.hidden_size = hidden_size
         self.cell_size = cell_size
+        
+        image_size = 54 if snapshot else image_size
+
+        assert image_size in [54, 110, 186, 224]
+        if image_size == 224:
+            if self.use_encoder and core_type != "rnn":
+                #The encoder is part of the core network (transformer encoder)
+                # Learnable query for starting the generation
+                self.query_vector = nn.Embedding(1, self.hidden_size)
+            else: 
+                # Use resnet50 as our context network. Freeze all layers except the last,
+                # which is replaced by a FC layer to project features to hidden size
+                self.context = resnet18(pretrained=True)
+                for param in self.context.parameters():
+                    param.requires_grad = False
+                self.context.fc = nn.Linear(512, hidden_size)
+        else:
+            strd = 2 if image_size > 54 and image_size < 224 else 1
+            self.context = modules.ContextNetwork(hidden_size, stride=strd, img_size=image_size, snapshot=snapshot)
+            
+        self.sensor = modules.GlimpseNetworkDRAM(g, k, s, c, hidden_size, core_type=core_type)
         
         self.core_type = core_type
         if core_type == "rnn":
             self.core = modules.CoreNetworkLSTM(hidden_size, hidden_size)
         else:
-            self.core = modules.CoreNetworkDoubleTransformer(hidden_size, hidden_size, inner_size, n_heads, transformer_model)
+            self.core = modules.CoreNetworkDoubleTransformer(hidden_size, hidden_size, inner_size, n_heads, transformer_model, use_encoder)
             
         self.locator = modules.LocationNetwork(hidden_size, 2, std)
         if num_classes:
@@ -268,14 +277,22 @@ class DeepRecurrentAttention(nn.Module):
             if first:
                 # Empty the glimpse and state buffers
                 self.reset_transformers_buffer(batch_size=x.shape[0])
-
-                # Create the context vector and pass it through the 
-                # second transformer. The resulting hidden state
-                # will be used to obtain the location for the first
-                # glimpse.
-                context = self.context(x)
-                h_t_2 = self.core.process_context(context)
-                h_t_1 = None
+                
+                
+                if self.use_encoder:
+                    # call encoder
+                    self.core.compute_encoder_hidden_states(pixel_values=x)
+                    query_embed = self.query_vector.weight.unsqueeze(0).repeat(x.shape[0], 1, 1).squeeze(1)
+                    (h_t_1, h_t_2) = self.core(query_embed)
+                else:
+                    # Create the context vector and pass it through the 
+                    # second transformer. The resulting hidden state
+                    # will be used to obtain the location for the first
+                    # glimpse.
+                    context = self.context(x)
+                    h_t_2 = self.core.process_context(context)
+                    h_t_1 = None
+                
             else:
                 g_t = self.sensor(x, l_t_prev)
                 (h_t_1, h_t_2) = self.core(g_t)

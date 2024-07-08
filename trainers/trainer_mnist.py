@@ -2,6 +2,7 @@ import os
 import time
 import shutil
 import pickle
+import json
 
 import torch
 import torch.nn.functional as F
@@ -43,7 +44,7 @@ class MNISTTrainer:
         self.num_patches = config.num_patches
         self.loc_hidden = config.loc_hidden
         self.glimpse_hidden = config.glimpse_hidden
-
+    
         # core network params
         self.core_type = config.core_type
         self.transformer_model = config.transformer_model
@@ -82,6 +83,7 @@ class MNISTTrainer:
         self.counter = 0
         self.lr_patience = config.lr_patience
         self.train_patience = config.train_patience
+        self.save_results = config.save_results
         self.wandb_name = config.wandb_name
         self.use_wandb = True if (self.wandb_name or is_gridsearch) else False
         self.resume = config.resume
@@ -93,10 +95,6 @@ class MNISTTrainer:
             config.patch_size,
             config.glimpse_scale,
         )
-
-        self.plot_dir = "./plots/" + self.model_name + "/"
-        if not os.path.exists(self.plot_dir):
-            os.makedirs(self.plot_dir)
 
         # configure wandb logging
         if self.use_wandb and not is_gridsearch:
@@ -132,7 +130,13 @@ class MNISTTrainer:
 
         # Show number of parameters
         summary(self.model)
-        #exit(0)
+        # Show number of parameters
+        sum = summary(self.model)
+        if self.use_wandb:
+            wandb.log({
+                'Total parameters': sum.total_params,
+                'Trainable parameters': sum.trainable_params
+                })
 
     def reset(self):
         h_t = torch.zeros(
@@ -238,26 +242,23 @@ class MNISTTrainer:
 
                 # initialize location vector and hidden state
                 self.batch_size = x.shape[0]
+                
+                # initialize variables to store model outputs
+                log_pi = []
+                baselines = []
+                
+                # get initial hidden state and random location
                 h_t, l_t = self.reset()
 
                 # initialize transformer's buffer for past glimpses
                 if self.core_type == "transformer":
                     self.model.reset_glimpse_buffer(self.batch_size, self.device)
-
-                # save images
-                imgs = []
-                imgs.append(x[0:9])
-
-                # extract the glimpses
-                locs = []
-                log_pi = []
-                baselines = []
+                
                 for t in range(self.num_glimpses - 1):
                     # forward pass through model
                     h_t, l_t, b_t, p = self.model(x, l_t, h_t)
 
                     # store
-                    locs.append(l_t[0:9])
                     baselines.append(b_t)
                     log_pi.append(p)
 
@@ -265,7 +266,6 @@ class MNISTTrainer:
                 h_t, l_t, b_t, log_probas, p = self.model(x, l_t, h_t, last=True)
                 log_pi.append(p)
                 baselines.append(b_t)
-                locs.append(l_t[0:9])
 
                 # convert list to tensors and reshape
                 baselines = torch.stack(baselines).transpose(1, 0)
@@ -313,17 +313,6 @@ class MNISTTrainer:
                     )
                 )
                 pbar.update(self.batch_size)
-
-                # dump the glimpses and locs
-                if plot:
-                    imgs = [g.cpu().data.numpy().squeeze() for g in imgs]
-                    locs = [l.cpu().data.numpy() for l in locs]
-                    pickle.dump(
-                        imgs, open(self.plot_dir + "g_{}.p".format(epoch + 1), "wb")
-                    )
-                    pickle.dump(
-                        locs, open(self.plot_dir + "l_{}.p".format(epoch + 1), "wb")
-                    )
 
             # log to wandb
             if self.use_wandb:
@@ -425,19 +414,24 @@ class MNISTTrainer:
         end once the model has finished training.
         """
         correct = 0
+        results = []
 
         # load the best checkpoint
-        #self.load_checkpoint(best=self.best)
+        self.load_checkpoint(best=self.best)
 
         for i, (x, y) in enumerate(self.test_loader):
             x, y = x.to(self.device), y.to(self.device)
 
             # duplicate M times
             x = x.repeat(self.M, 1, 1, 1)
+            
+            # initialize list to store predicted locations
+            locs = []
 
             # initialize location vector and hidden state
             self.batch_size = x.shape[0]
             h_t, l_t = self.reset()
+            locs.append(l_t)
 
             # initialize transformer's buffer for past glimpses
             if self.core_type == "transformer":
@@ -447,6 +441,7 @@ class MNISTTrainer:
             for t in range(self.num_glimpses - 1):
                 # forward pass through model
                 h_t, l_t, b_t, p = self.model(x, l_t, h_t)
+                locs.append(l_t)
 
             # last iteration
             h_t, l_t, b_t, log_probas, p = self.model(x, l_t, h_t, last=True)
@@ -456,6 +451,20 @@ class MNISTTrainer:
 
             pred = log_probas.data.max(1, keepdim=True)[1]
             correct += pred.eq(y.data.view_as(pred)).cpu().sum()
+            
+            # Monte Carlo sampling for locations. The predicted location at each
+            # time step is the mean of the M locations
+            locs = torch.stack(locs).transpose(1, 0)
+            locs = locs.contiguous().view(self.M, -1, locs.shape[-2], locs.shape[-1])
+            locs = torch.mean(locs, dim=0)
+            
+            for i in range(self.batch_size):
+                results.append({
+                    "locs": locs[i].tolist(),
+                    "pred": pred[i].item(),
+                    "label": y[i].item(),
+                    "pixel_values": x[i].tolist()
+                })
 
         perc = (100.0 * correct) / (self.num_test)
         error = 100 - perc
@@ -469,6 +478,19 @@ class MNISTTrainer:
             wandb.log({
                 'Test Accuracy': perc
                 })
+            
+        # Save resuls to file
+        if self.save_results:
+            self.write_results(results)
+            
+            
+    def write_results(self, results):
+        filename = self.model_name + "_results.json"
+        res_path = os.path.join(self.ckpt_dir, filename)
+        
+        with open(res_path, "w") as f:
+            json.dump(results, f)
+            
 
     def save_checkpoint(self, state, is_best):
         """Saves a checkpoint of the model.

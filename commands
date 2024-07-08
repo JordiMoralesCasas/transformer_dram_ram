@@ -10,11 +10,18 @@ CUDA_VISIBLE_DEVICES=7 python main.py \
     --epochs 200 --batch_size 512 --hidden_size 256 --init_lr 0.0005 \
     --num_glimpses 6 --patch_size 8 --weight_decay 0.01 --std 0.05
 
+CUDA_VISIBLE_DEVICES=7 python main.py --is_train False --save_results True \
+    --ckpt_dir /data/users/jmorales/model_files/RAM/GPT2  \
+    --transformer_model gpt2 --core_type transformer --task mnist \
+    --batch_size 512 --hidden_size 256 \
+    --num_glimpses 6 --patch_size 8 --std 0.05
 
-CUDA_VISIBLE_DEVICES=7 python main.py \
-    --wandb_name RAM_GTrXL_core \
-    --ckpt_dir /data/users/jmorales/model_files/RAM/GTrXL_core \
-    --epochs 200 --batch_size 512
+CUDA_VISIBLE_DEVICES=7 python main.py --is_train False --save_results True \
+    --ckpt_dir /data/users/jmorales/model_files/RAM/baseline  \
+    --core_type rnn --task mnist \
+    --batch_size 512 --hidden_size 256 \
+    --num_glimpses 6 --patch_size 8 --std 0.05
+
 
 # SVHN Multi Digit
 CUDA_VISIBLE_DEVICES=7 python main.py \
@@ -68,11 +75,18 @@ CUDA_VISIBLE_DEVICES=7 python main.py \
 
 # Multiscale
 CUDA_VISIBLE_DEVICES=7 python main.py \
-    --wandb_name DRAM_SVHN_GTrXL_512_patch20_2scale_lr0_0001 \
-    --ckpt_dir /data/users/jmorales/model_files/DRAM/DRAM_SVHN_GTrXL_512_patch20_2scale_lr0_0001 \
-    --task svhn --core_type transformer --transformer_model gtrxl --epochs 150 --batch_size 128 \
-    --hidden_size 512 --cell_size 512 --inner_size 1024 \
+    --wandb_name DRAM_SVHN_TrXL_patch20_2scale_lr0_0001 \
+    --ckpt_dir /data/users/jmorales/model_files/Exp2/DRAM_SVHN_TrXL_patch20_2scale_lr0_0001 \
+    --task svhn --core_type transformer --transformer_model trxl --epochs 150 --batch_size 128 \
+    --hidden_size 1024 --cell_size 512 --inner_size 1024 \
     --init_lr 0.0001 --optimizer adamw --weight_decay 0.001 --preprocess crop \
+    --num_glimpses 3 --patch_size 20 --num_patches 2 --glimpse_scale 2 --std 0.01
+
+CUDA_VISIBLE_DEVICES=7 python main.py --is_train False --save_results True \
+    --ckpt_dir /data/users/jmorales/model_files/Exp2/DRAM_SVHN_GTrXL_768_patch20_2scale_lr0_0001 \
+    --core_type transformer --transformer_model gtrxl --batch_size 128 \
+    --hidden_size 768 --cell_size 512 --inner_size 1024 \
+    --preprocess crop --task svhn \
     --num_glimpses 3 --patch_size 20 --num_patches 2 --glimpse_scale 2 --std 0.01
     
 
@@ -85,6 +99,12 @@ CUDA_VISIBLE_DEVICES=7 python main.py \
     --init_lr 0.01 --num_glimpses 3 --optimizer sgd --momentum 0.9 --std 0.03 \
     --patch_size 20 --num_patches 2 --glimpse_scale 2
 
+CUDA_VISIBLE_DEVICES=7 python main.py --is_train False --save_results True \
+    --ckpt_dir /data/users/jmorales/model_files/Exp2/DRAM_SVHN_LSTM_baseline_patch20_2scale \
+    --task svhn --preprocess crop --core_type rnn \
+    --batch_size 128 --hidden_size 1024 --cell_size 512 \
+    --num_glimpses 3 --patch_size 20 --num_patches 2 --glimpse_scale 2 --std 0.03
+
 
 # expand digits
 CUDA_VISIBLE_DEVICES=7 python main.py \
@@ -94,4 +114,45 @@ CUDA_VISIBLE_DEVICES=7 python main.py \
     --hidden_size 768 --cell_size 512 --inner_size 1024 \
     --init_lr 0.0001 --optimizer adamw --weight_decay 0.001 --preprocess 186 \
     --num_glimpses 3 --patch_size 20 --num_patches 2 --glimpse_scale 2 --std 0.03 --epsilon_greedy False
+
+
+# expand digits + MC + explore_steps
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --wandb_name DRAM_SVHN_expand_110x110_std0_03_lr0_0001_exploresteps2 \
+    --ckpt_dir /data/users/jmorales/model_files/DRAM/DRAM_SVHN_expand_110x110_std0_03_lr0_0001_exploresteps2 \
+    --task svhn --core_type transformer --transformer_model gtrxl --epochs 100 --batch_size 128 \
+    --hidden_size 768 --cell_size 512 --inner_size 1024 \
+    --init_lr 0.0001 --optimizer adamw --weight_decay 0.001 --preprocess 110 \
+    --num_glimpses 3 --patch_size 20 --num_patches 2 --glimpse_scale 2 --std 0.03 --epsilon_greedy False --M 1 --explore_steps 2
+
+
+# 224/186 from pretrained weights
+CUDA_VISIBLE_DEVICES=7 python main.py \
+    --wandb_name DRAM_SVHN_expand_186x186_pretrained_std0_03_lr0_00005_exploresteps3\
+    --ckpt_dir /data/users/jmorales/model_files/DRAM/DRAM_SVHN_expand_186x186_pretrained_std0_03_lr0_00005_exploresteps3 \
+    --pretrained_ckpt /data/users/jmorales/model_files/DRAM/DRAM_SVHN_expand_110x110_std0_03_lr0_0001 \
+    --task svhn --core_type transformer --transformer_model gtrxl --epochs 100 --batch_size 128 \
+    --hidden_size 768 --cell_size 512 --inner_size 1024 \
+    --init_lr 0.00005 --optimizer adamw --weight_decay 0.001 --preprocess 186 \
+    --num_glimpses 3 --patch_size 20 --num_patches 2 --glimpse_scale 2 --std 0.03 \
+    --epsilon_greedy False --explore_steps 3 --use_encoder False
+
+# Test
+CUDA_VISIBLE_DEVICES=6 python main.py \
+    --ckpt_dir /data/users/jmorales/model_files/Exp3/DRAM_SVHN_expand_110x110_std0_03_lr0_0001 \
+    --task svhn --core_type transformer --transformer_model gtrxl --batch_size 128 \
+    --hidden_size 768 --cell_size 512 --inner_size 1024 --preprocess 110 \
+    --num_glimpses 3 --patch_size 20 --num_patches 2 --glimpse_scale 2 --std 0.03 \
+    --epsilon_greedy False --explore_steps 0 --use_encoder False --is_train False --save_results True
+
+
+# snapshot context
+CUDA_VISIBLE_DEVICES=6 python main.py \
+    --wandb_name snapshot_expand_110x110_pretrained_std0_03_lr0_0002_exploresteps3\
+    --ckpt_dir /data/users/jmorales/model_files/DRAM/snapshot_expand_110x110_pretrained_std0_03_lr0_0002_exploresteps3 \
+    --task svhn --core_type transformer --transformer_model gtrxl --epochs 1 --batch_size 128 \
+    --hidden_size 768 --cell_size 512 --inner_size 1024 \
+    --init_lr 0.0002 --optimizer adamw --weight_decay 0.001 --preprocess 110 --snapshot True \
+    --num_glimpses 3 --patch_size 20 --num_patches 2 --glimpse_scale 2 --std 0.03 \
+    --epsilon_greedy False --explore_steps 3 --use_encoder False --snapshot True
     

@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.distributions import Normal
-from transformers import GPT2Model, AutoConfig, TransfoXLModel, GPT2LMHeadModel
+from transformers import GPT2Model, AutoConfig, TransfoXLModel, GPT2LMHeadModel, AutoModel
 from trainers.utils import PositionalEncoding2D, shift_right
 from modelling.gtrxl import GTrXL_wrapper as GTrXL
 
@@ -460,7 +460,7 @@ class CoreNetworkDoubleTransformer(nn.Module):
             state vector for the current timestep `t`.
     """
 
-    def __init__(self, input_size, hidden_size, inner_size, n_heads, transformer_model="gpt2"):
+    def __init__(self, input_size, hidden_size, inner_size, n_heads, transformer_model="gpt2", use_encoder=False):
         super().__init__()
 
         self.input_size = input_size
@@ -500,28 +500,33 @@ class CoreNetworkDoubleTransformer(nn.Module):
                 "layer_num": 1
                 }
             self.tr1 = GTrXL(**config)
-            self.tr2 = GTrXL(**config)
-        elif transformer_model == "DRAMLM":
-             ## Answer module        
-            gpt2 = GPT2LMHeadModel.from_pretrained("gpt2")
-            self.tr1 = gpt2.transformer
-            self.lm_head = gpt2.lm_head
-            self.text_embeddings = gpt2.transformer.wte
-            
-            config = {
-                "input_dim": self.hidden_size,
-                "head_dim": self.hidden_size,
-                "embedding_dim": self.hidden_size,
-                "memory_len": 0, # We already implement our own memory
-                "head_num": n_heads,
-                "mlp_num": 1,
-                "layer_num": 1
-                }
-            self.tr2 = GTrXL(**config)
+            self.tr2 = GTrXL(**config, do_crossattention=use_encoder)
 
+        self.encoder_hidden_states = None
+        if use_encoder:
+            # Instantitate image encoder
+            self.image_encoder = AutoModel.from_pretrained("google/vit-base-patch16-224")
+            
+            # Freeze encoder
+            for param in self.image_encoder.parameters():
+                param.requires_grad = False
+        
         # We will store the past glimpses in this variable
         self.past_states = None
         self.past_glimpses = None
+        
+    def compute_encoder_hidden_states(self, pixel_values):
+        """
+        Takes the pixel values of the snapshot image and
+        computes the encoder hidden states in order for the top decoder
+        to do cross-attention.
+
+        Args:
+            input_ids: 2d tensor (batch_size, seq_len). Contains the ids for the question
+              tokens.
+        """
+        outputs_top = self.image_encoder(pixel_values=pixel_values)
+        self.encoder_hidden_states = outputs_top.last_hidden_state
     
     def process_context(self, context):
         # In the first step, the second transformer has to produce
@@ -535,62 +540,6 @@ class CoreNetworkDoubleTransformer(nn.Module):
         output = self.tr2(inputs_embeds=self.past_states)
         h_t_2 = output.last_hidden_state[:, -1, :]
         return h_t_2
-    
-    def lm_answer(self, label_ids, decoder_attention_mask, pad_token_id, decoder_start_token_id):
-        # Answer generation phase. Take decoder labels, generate and 
-        # return answer prediction.
-        # (For inference: maybe create a method which takes the <start> embeddings,
-        # does the loop and return the generated tokens)
-
-        decoder_input_ids = shift_right(label_ids, pad_token_id=pad_token_id, decoder_start_token_id=decoder_start_token_id)
-        decoder_inputs_embeds = self.text_embeddings(decoder_input_ids)
-
-        b, l, h = decoder_inputs_embeds.shape
-
-        # extend attention mask to cover previous glimpses
-        decoder_attention_mask = torch.cat([
-            torch.ones(self.past_glimpses.shape[:2], device=decoder_attention_mask.device),
-            decoder_attention_mask
-            ], axis=1)
-
-        # Join glimpse and text embeddings
-        self.past_glimpses = torch.cat([
-            self.past_glimpses, 
-            decoder_inputs_embeds
-            ], axis=1)
-        
-        # Compute next hidden state
-        output = self.tr1(
-            inputs_embeds=self.past_glimpses
-            )
-        return output.last_hidden_state[:, -l:, :]
-    
-    def get_token_output(self, tokens):
-        """
-        Compute the embeddins for the input tokens, pass them through the
-        decoder and return the resulting hidden states.
-
-        Args:
-            token: 1d tensor (batch_size, ) containing the token ids to
-              process.
-
-        Return:
-            2d tensor (batch_size, hidden_size) containing the encoder's
-            output hidden states for the input tokens.
-              
-        """
-        token_embeds = self.text_embeddings(tokens)
-
-        # Join glimpse and text embeddings
-        self.past_glimpses = torch.cat([
-            self.past_glimpses, 
-            token_embeds[:, None, :]
-            ], axis=1)
-
-        output = self.tr1(
-            inputs_embeds=self.past_glimpses
-            )
-        return output.last_hidden_state[:, -1, :]
 
     def forward(self, g_t):
         # We need to keep track of all the transformer's inputs.
@@ -611,7 +560,9 @@ class CoreNetworkDoubleTransformer(nn.Module):
             h_t_1[:, None, :]
             ], axis=1)
             
-        output = self.tr2(inputs_embeds=self.past_states)
+        output = self.tr2(
+            inputs_embeds=self.past_states,
+            encoder_hidden_states=self.encoder_hidden_states)
         h_t_2 = output.last_hidden_state[:, -1, :]
 
         return (h_t_1, h_t_2)         
@@ -758,8 +709,11 @@ class ContextNetwork(nn.Module):
             the input image.
     """
     
-    def __init__(self, hidden_size, stride, kernel_sizes=(5,3,3), img_size=54):
+    def __init__(self, hidden_size, stride, kernel_sizes=(5,3,3), img_size=54, snapshot=False):
         super().__init__()
+        
+        # wether we will be using snapshots of the original image as context
+        self.snapshot = snapshot
 
         self.conv1 = nn.Conv2d(1, 64, stride=stride, kernel_size=kernel_sizes[0])
         self.conv2 = nn.Conv2d(64, 64, kernel_size=kernel_sizes[1])
@@ -767,6 +721,8 @@ class ContextNetwork(nn.Module):
         self.pool = nn.MaxPool2d((2,2))
         
         if img_size == 54:
+            final_feat_map_size = 4
+        elif img_size == 64:
             final_feat_map_size = 4
         elif img_size == 110:
             final_feat_map_size = 5
@@ -776,6 +732,9 @@ class ContextNetwork(nn.Module):
         self.fc = nn.Linear(128*final_feat_map_size*final_feat_map_size, hidden_size)
 
     def forward(self, x):
+        if self.snapshot:
+            x = F.interpolate(x, size=(54, 54))
+            
         x = self.pool(self.conv1(x))
         x = self.pool(self.conv2(x))
         x = self.pool(self.conv3(x))

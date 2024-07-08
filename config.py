@@ -35,6 +35,11 @@ glimpse_arg.add_argument(
     "--glimpse_hidden", type=int, default=128, help="hidden size of glimpse fc"
 )
 
+# context network params
+context_arg = add_argument_group("Context Network Params")
+context_arg.add_argument(
+    "--snapshot", type=str2bool, default=False, help="Wether to use a snapshot of the input image as the context."
+    )
 
 # core network params
 core_arg = add_argument_group("Core Network Params")
@@ -45,7 +50,13 @@ core_arg.add_argument(
     "--transformer_model", type=str, default="gpt2",choices=["gpt2", "trxl", "gtrxl", "DRAMLM"], help="Type of Transformer architecture."
     )
 core_arg.add_argument(
+    "--use_encoder", type=str2bool, default=False, help="Wether to use a transformer image encoder to do cross-attention or just a CNN to create a context vecotr"
+    )
+core_arg.add_argument(
     "--num_glimpses", type=int, default=6, help="# of glimpses, i.e. BPTT iterations"
+)
+core_arg.add_argument(
+    "--explore_steps", type=int, default=0, help="# of glimpses dedicated to explore, no prediction is expected."
 )
 core_arg.add_argument(
     "--hidden_size", type=int, default=256, help="hidden size of rnn"
@@ -203,6 +214,12 @@ misc_arg.add_argument(
     type=str,
     default="/data/users/jmorales/model_files/last",
     help="Directory in which to save model checkpoints",
+)
+misc_arg.add_argument(
+    "--pretrained_ckpt",
+    type=str,
+    default=None,
+    help="Checkpoint from which start training.",
 )
 
 misc_arg.add_argument(

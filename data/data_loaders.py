@@ -9,6 +9,7 @@ from torchvision import datasets
 from torchvision import transforms
 from torch.utils.data.sampler import SubsetRandomSampler
 from torch.utils.data import DataLoader
+from transformers import AutoImageProcessor
 
 from data.svhn.svhn_dataset import SVHNDataset
 from data.svhn.svhn_collator import DataCollatorForSVHN
@@ -133,10 +134,12 @@ def get_train_valid_loader_svhn(
     data_dir,
     batch_size,
     random_seed,
-    show_sample=False,
     num_workers=4,
     pin_memory=False,
-    do_preprocessing=None
+    debug_run=False,
+    do_preprocessing=None,
+    use_encoder=False,
+    snapshot=False
 ):
     """Train and validation data loaders for the SVHN Dataset.
 
@@ -187,66 +190,53 @@ def get_train_valid_loader_svhn(
             val_data = pickle.load(f)
 
     # define transforms
+    image_processor, trans = None, None
     if do_preprocessing == "crop":
-        train_trans = transforms.Compose([
+        trans = transforms.Compose([
             transforms.Grayscale(),
             transforms.Resize((64, 64)),
             transforms.RandomCrop((54, 54)),
             transforms.ToTensor(), 
             transforms.Normalize((0.1307,), (0.3081,))])
-        val_trans = transforms.Compose([
-            transforms.Grayscale(),
-            transforms.Resize((64, 64)),
-            transforms.CenterCrop((54, 54)),
-            transforms.ToTensor(), 
-            transforms.Normalize((0.1307,), (0.3081,))])
-    elif do_preprocessing == 224:
-        # resnet preprocessing
-        train_trans = val_trans = transforms.Compose([
-            transforms.Resize((do_preprocessing, do_preprocessing)),
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ])
+        
+    elif do_preprocessing == 224 and not snapshot:
+        # For large images, we can use either an image Transformer encoder or
+        # a ResNet feature extractor
+        if use_encoder:
+            image_processor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224")
+        else:
+            trans = transforms.Compose([
+                transforms.Resize((do_preprocessing, do_preprocessing)),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
     else:
-        train_trans = val_trans = transforms.Compose([
+        trans = transforms.Compose([
             transforms.Resize((do_preprocessing, do_preprocessing)),
             transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,))])
     
     # load dataset
-    train_dataset = SVHNDataset(data_dir, train_data, train_trans, do_preprocessing=do_preprocessing)
-    val_dataset = SVHNDataset(data_dir, val_data, val_trans, do_preprocessing=do_preprocessing)
-
-    valid_loader = DataLoader(
-        val_dataset, shuffle=False,
-        collate_fn=DataCollatorForSVHN(), 
-        num_workers=num_workers, batch_size=batch_size)
+    train_dataset = SVHNDataset(data_dir, train_data, transforms=trans, debug_run=debug_run, do_preprocessing=do_preprocessing, snapshot=snapshot)
+    val_dataset = SVHNDataset(data_dir, val_data, transforms=trans, debug_run=debug_run, do_preprocessing=do_preprocessing, snapshot=snapshot)
     
+    data_collator = DataCollatorForSVHN(image_processor=image_processor)
     train_loader = DataLoader(
-        train_dataset, shuffle=True,
-        collate_fn=DataCollatorForSVHN(),
-        batch_size=batch_size, num_workers=num_workers, pin_memory=True)
-
-    # visualize some images
-    if show_sample:
-        sample_loader = DataLoader(
-            train_dataset,
-            batch_size=9,
-            shuffle=True,
-            collate_fn=DataCollatorForSVHN(),
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-        )
-        data_iter = iter(sample_loader)
-        batch = next(data_iter)
-        X = batch.pixel_values.numpy()
-        X = np.transpose(X, [0, 2, 3, 1])
-        plot_images(X, batch.labels)
+        train_dataset, 
+        shuffle=True,
+        collate_fn=data_collator,
+        batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
+    
+    valid_loader = DataLoader(
+        val_dataset, 
+        shuffle=False,
+        collate_fn=data_collator, 
+        batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory, )
 
     return (train_loader, valid_loader)
 
 
-def get_test_loader_svhn(data_dir, batch_size, num_workers=4, pin_memory=False, do_preprocessing=False):
+def get_test_loader_svhn(data_dir, batch_size, num_workers=4, pin_memory=False, debug_run=False, do_preprocessing=False, use_encoder=False, snapshot=False):
     """Test dataloader for the SVHN Dataset.
 
     Args:
@@ -258,6 +248,12 @@ def get_test_loader_svhn(data_dir, batch_size, num_workers=4, pin_memory=False, 
         do_preprocessing (bool): Wether to apply the preprocessing
             method (crop around digits, resize and random/center crop).
     """
+    if do_preprocessing != "crop":   
+        try:
+            do_preprocessing = int(do_preprocessing)
+        except:
+            assert False, '"do_preprocessing" must be "crop" or an integer.'
+    assert do_preprocessing == "crop" or type(do_preprocessing) == int, '"do_preprocessing" must be "crop" or an integer.'
 
     # Get Test data
     if not os.path.exists(data_dir + "test_data.pkl"):
@@ -268,27 +264,38 @@ def get_test_loader_svhn(data_dir, batch_size, num_workers=4, pin_memory=False, 
         with open(data_dir + "test_data.pkl", "rb") as f:
             test_data = pickle.load(f)
 
-    # define transforms
-    if do_preprocessing:
+    image_processor, trans = None, None
+    if do_preprocessing == "crop":
         trans = transforms.Compose([
             transforms.Grayscale(),
             transforms.Resize((64, 64)),
-            transforms.CenterCrop((54, 54)),
+            transforms.RandomCrop((54, 54)),
             transforms.ToTensor(), 
             transforms.Normalize((0.1307,), (0.3081,))])
+        
+    elif do_preprocessing == 224 and not snapshot:
+        # For large images, we can use either an image Transformer encoder or
+        # a ResNet feature extractor
+        if use_encoder:
+            image_processor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224")
+        else:
+            trans = transforms.Compose([
+                transforms.Resize((do_preprocessing, do_preprocessing)),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
     else:
         trans = transforms.Compose([
-            transforms.Grayscale(),
-            transforms.Resize((64, 64)),
-            transforms.ToTensor(), 
+            transforms.Resize((do_preprocessing, do_preprocessing)),
+            transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,))])
     
     # load dataset
-    test_dataset = SVHNDataset(data_dir, test_data, trans, do_preprocessing=do_preprocessing)
+    test_dataset = SVHNDataset(data_dir, test_data, trans, debug_run=debug_run, do_preprocessing=do_preprocessing, snapshot=snapshot)
 
-    train_loader = DataLoader(
-        test_dataset, shuffle=True,
-        collate_fn=DataCollatorForSVHN(),
+    test_loader = DataLoader(
+        test_dataset, shuffle=False,
+        collate_fn=DataCollatorForSVHN(image_processor=image_processor),
         batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
-    return train_loader
+    return test_loader

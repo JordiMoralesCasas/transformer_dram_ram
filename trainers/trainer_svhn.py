@@ -49,11 +49,16 @@ class SVHNTrainer:
         # core network params
         self.core_type = config.core_type
         self.transformer_model = config.transformer_model
+        self.use_encoder = config.use_encoder
         self.num_glimpses = config.num_glimpses
+        self.explore_steps = config.explore_steps
         self.hidden_size = config.hidden_size
         self.cell_size = config.cell_size
         self.inner_size = config.inner_size
         self.n_heads = config.n_heads
+        
+        # context network params
+        self.snapshot = config.snapshot
 
         # reinforce params            
         self.M = config.M
@@ -98,12 +103,16 @@ class SVHNTrainer:
         self.ckpt_dir = config.ckpt_dir
         if not os.path.exists(self.ckpt_dir):
             os.makedirs(self.ckpt_dir)
-
+            
+        self.pretrained_ckpt = config.pretrained_ckpt
+        if self.pretrained_ckpt is not None:
+            assert os.path.exists(self.pretrained_ckpt), "Pretrained checkpoint does not exist!"
+        
         self.best_valid_acc = 0.0
         self.counter = 0
         self.lr_patience = config.lr_patience
-        self.save_results = config.save_results
         self.train_patience = config.train_patience
+        self.save_results = config.save_results
         self.wandb_name = config.wandb_name
         self.use_wandb = True if (self.wandb_name or is_gridsearch) else False
         self.resume = config.resume
@@ -115,10 +124,6 @@ class SVHNTrainer:
             config.patch_size,
             config.glimpse_scale,
         )
-
-        self.plot_dir = "./plots/" + self.model_name + "/"
-        if not os.path.exists(self.plot_dir):
-            os.makedirs(self.plot_dir)
 
         # configure wandb logging
         if self.use_wandb and not is_gridsearch:
@@ -145,7 +150,9 @@ class SVHNTrainer:
             self.core_type,
             self.device,
             self.transformer_model,
-            self.image_size
+            self.use_encoder,
+            self.image_size,
+            self.snapshot
         )
         self.model.to(self.device)
 
@@ -192,6 +199,9 @@ class SVHNTrainer:
         # load the most recent checkpoint
         if self.resume:
             self.load_checkpoint(best=False)
+        # if pretrained weights are provided
+        elif self.pretrained_ckpt is not None:
+            self.load_pretrained_weights()
 
         print(
             "\n[*] Train on {} samples, validate on {} samples".format(
@@ -271,19 +281,14 @@ class SVHNTrainer:
 
                 x, y = batch.pixel_values.to(self.device), batch.labels.to(self.device)
 
-                plot = False
-                if (epoch % self.plot_freq == 0) and (i == 0):
-                    plot = True
-
                 # initialize location vector and hidden state
-                self.batch_size = x.shape[0]                    
+                self.batch_size = x.shape[0]                
 
                 # save images
                 imgs = []
                 imgs.append(x[0:9])
 
                 # initialize variables to store model outputs
-                locs = []
                 log_pi = []
                 baselines = []
                 all_log_probas = []
@@ -293,13 +298,10 @@ class SVHNTrainer:
 
                 # to keep track of which sequences are still running
                 is_running = torch.ones((self.batch_size, ), dtype=torch.bool, device=self.device)
-
+                
                 # first iteration: Create context vector, initialize states and
                 # get location for first glimpse
-                #h_t, l_t, _, _ = self.model(x, None, None, first=True)
-                
                 h_t, l_t, b_t, p = self.model(x, None, None, first=True)
-                locs.append(l_t[0:9])
                 baselines.append(b_t)
                 log_pi.append(p)
                 
@@ -310,6 +312,19 @@ class SVHNTrainer:
                 
                 num_digits = y.shape[-1]
                 for d_i in range(num_digits):
+                    # exploration steps
+                    for t in range(self.explore_steps):
+                        # forward pass through model
+                        h_t, l_t, b_t, p = self.model(x, l_t, h_t)
+
+                        # mark with ignore_index in order to ignore them during the loss computation
+                        p[~is_running], b_t[~is_running] = self.ignore_index, self.ignore_index
+
+                        # store
+                        baselines.append(b_t)
+                        log_pi.append(p)
+                    
+                    # prediction steps
                     for t in range(self.num_glimpses - 1):
                         # forward pass through model
                         h_t, l_t, b_t, p = self.model(x, l_t, h_t)
@@ -318,7 +333,6 @@ class SVHNTrainer:
                         p[~is_running], b_t[~is_running] = self.ignore_index, self.ignore_index
 
                         # store
-                        locs.append(l_t[0:9])
                         baselines.append(b_t)
                         log_pi.append(p)
 
@@ -329,9 +343,8 @@ class SVHNTrainer:
                     p[~is_running], b_t[~is_running] = self.ignore_index, self.ignore_index
 
                     # store
-                    locs.append(l_t[0:9])
                     baselines.append(b_t)
-                    log_pi.append(p)
+                    log_pi.append(p)                    
                     all_log_probas.append(log_probas)
 
                     # get predicted label
@@ -375,7 +388,6 @@ class SVHNTrainer:
                 baselines = torch.stack(baselines).transpose(1, 0)
                 log_pi = torch.stack(log_pi).transpose(1, 0)
                 all_log_probas = torch.stack(all_log_probas).transpose(1, 0)
-
                 
                 # broadcast reward along new axis
                 R = total_reward.unsqueeze(1).repeat(1, baselines.shape[-1])
@@ -395,11 +407,7 @@ class SVHNTrainer:
                 loss_mat[log_pi == self.ignore_index] = 0
 
                 # sum over timesteps
-                loss_reinforce = torch.sum(loss_mat, dim=1)
-                # mean over timesteps
-                """mask = log_pi != 0
-                loss_reinforce = (loss_mat*mask).sum(dim=1) / mask.sum(dim=1)"""
-                
+                loss_reinforce = torch.sum(loss_mat, dim=1)                
                 loss_reinforce = torch.mean(loss_reinforce, dim=0)
 
                 # sum up into a hybrid loss
@@ -409,9 +417,9 @@ class SVHNTrainer:
                 acc = 100 * (all_correct.float().sum() / y.shape[0])
                 
                 # store
-                losses.update(loss.item(), x.shape[0])
-                accs.update(acc.item(), x.shape[0])
-                rews.update(total_reward.mean().item(), x.shape[0])
+                losses.update(loss.item(), self.batch_size)
+                accs.update(acc.item(), self.batch_size)
+                rews.update(total_reward.mean().item(), self.batch_size)
 
                 # compute gradients and update SGD
                 loss.backward()
@@ -439,17 +447,6 @@ class SVHNTrainer:
                         )
                     )
                 pbar.update(self.batch_size)
-
-                # dump the glimpses and locs
-                if plot:
-                    imgs = [g.cpu().data.numpy().squeeze() for g in imgs]
-                    locs = [l.cpu().data.numpy() for l in locs]
-                    pickle.dump(
-                        imgs, open(self.plot_dir + "g_{}.p".format(epoch + 1), "wb")
-                    )
-                    pickle.dump(
-                        locs, open(self.plot_dir + "l_{}.p".format(epoch + 1), "wb")
-                    )
 
             # log to wandb
             if self.use_wandb:
@@ -479,6 +476,9 @@ class SVHNTrainer:
 
             # initialize location vector and hidden state
             self.batch_size = x.shape[0]
+            
+            # duplicate M times (Monte Carlo sampling)
+            x = x.repeat(self.M, 1, 1, 1)    
 
             # initialize variables to store model outputs
             locs = []
@@ -496,14 +496,32 @@ class SVHNTrainer:
             # get location for first glimpse
             h_t, l_t, _, _ = self.model(x, None, None, first=True)
             
+            # if we have a rgb image, convert to grayscale
+            if x.shape[1] == 3:
+                x = x.mean(dim=1)
+                x = x[:, None, :, :]
+            
             num_digits = y.shape[-1]
             for d_i in range(num_digits):
-                for t in range(self.num_glimpses - 1):
+                # exploration steps
+                for t in range(self.explore_steps):
                     # forward pass through model
                     h_t, l_t, b_t, p = self.model(x, l_t, h_t)
 
                     # mark with ignore_index in order to ignore them during the loss computation
                     p[~is_running], b_t[~is_running] = self.ignore_index, self.ignore_index
+
+                    # store
+                    baselines.append(b_t)
+                    log_pi.append(p)
+                    
+                # prediction steps
+                for t in range(self.num_glimpses - 1):
+                    # forward pass through model
+                    h_t, l_t, b_t, p = self.model(x, l_t, h_t)
+
+                    # mark with ignore_index in order to ignore them during the loss computation
+                    p[(~is_running).repeat(self.M)], b_t[(~is_running).repeat(self.M)] = self.ignore_index, self.ignore_index
 
                     # store
                     locs.append(l_t[0:9])
@@ -514,12 +532,16 @@ class SVHNTrainer:
                 h_t, l_t, b_t, log_probas, p = self.model(x, l_t, h_t, last=True)
 
                 # mark with ignore_index in order to ignore them during the loss computation
-                p[~is_running], b_t[~is_running] = self.ignore_index, self.ignore_index
+                p[(~is_running).repeat(self.M)], b_t[(~is_running).repeat(self.M)] = self.ignore_index, self.ignore_index
 
                 # store
                 locs.append(l_t[0:9])
                 baselines.append(b_t)
                 log_pi.append(p)
+                
+                # Monte Carlo sampling for class log-probabilities
+                log_probas = log_probas.view(self.M, -1, log_probas.shape[-1])
+                log_probas = torch.mean(log_probas, dim=0)
                 all_log_probas.append(log_probas)
 
                 # get predicted label
@@ -563,6 +585,13 @@ class SVHNTrainer:
             baselines = torch.stack(baselines).transpose(1, 0)
             log_pi = torch.stack(log_pi).transpose(1, 0)
             all_log_probas = torch.stack(all_log_probas).transpose(1, 0)
+            
+            # Monte Carlo sampling for baselines and location log probabilities
+            baselines = baselines.contiguous().view(self.M, -1, baselines.shape[-1])
+            baselines = torch.mean(baselines, dim=0)
+
+            log_pi = log_pi.contiguous().view(self.M, -1, log_pi.shape[-1])
+            log_pi = torch.mean(log_pi, dim=0)
 
             # broadcast reward along new axis
             R = total_reward.unsqueeze(1).repeat(1, baselines.shape[-1])
@@ -590,9 +619,9 @@ class SVHNTrainer:
             acc = 100 * (all_correct.float().sum() / y.shape[0])
 
             # store
-            losses.update(loss.item(), x.shape[0])
-            accs.update(acc.item(), x.shape[0])
-            rews.update(total_reward.mean().item(), x.shape[0])
+            losses.update(loss.item(), self.batch_size)
+            accs.update(acc.item(), self.batch_size)
+            rews.update(total_reward.mean().item(), self.batch_size)
 
         # log to wandb
         if self.use_wandb:
@@ -628,6 +657,9 @@ class SVHNTrainer:
 
             # initialize location vector and hidden state
             self.batch_size = x.shape[0]
+            
+            # duplicate M times (Monte Carlo sampling)
+            x = x.repeat(self.M, 1, 1, 1) 
 
             # initialize variables to store model outputs
             all_log_probas = []
@@ -645,26 +677,35 @@ class SVHNTrainer:
             # save predicted location
             locs.append(l_t)
             
+            # if we have a rgb image, convert to grayscale
+            if x.shape[1] == 3:
+                x = x.mean(dim=1)
+                x = x[:, None, :, :]
+            
             num_digits = y.shape[-1]
             for d_i in range(num_digits):
+                # exploration steps
+                for t in range(self.explore_steps):
+                    # forward pass through model
+                    h_t, l_t, b_t, p = self.model(x, l_t, h_t)
+                    # save predicted location
+                    locs.append(l_t)
+                
+                # prediction steps
                 for t in range(self.num_glimpses - 1):
                     # forward pass through model
                     h_t, l_t, b_t, p = self.model(x, l_t, h_t)
                     # save predicted location
                     locs.append(l_t)
 
-                    # mark with ignore_index in order to ignore them during the loss computation
-                    p[~is_running], b_t[~is_running] = self.ignore_index, self.ignore_index
-
                 # last iteration of current digit
                 h_t, l_t, b_t, log_probas, p = self.model(x, l_t, h_t, last=True)
                 # save predicted location
                 locs.append(l_t)
 
-                # mark with ignore_index in order to ignore them during the loss computation
-                p[~is_running], b_t[~is_running] = self.ignore_index, self.ignore_index
-
-                # store
+                # Monte Carlo sampling for class log-probabilities
+                log_probas = log_probas.view(self.M, -1, log_probas.shape[-1])
+                log_probas = torch.mean(log_probas, dim=0)
                 all_log_probas.append(log_probas)
 
                 # get predicted label
@@ -711,14 +752,20 @@ class SVHNTrainer:
             acc = 100 * (all_correct.float().sum() / y.shape[0])
 
             # store
-            accs.update(acc.item(), x.shape[0])
-            rews.update(total_reward.mean().item(), x.shape[0])
+            accs.update(acc.item(), self.batch_size)
+            rews.update(total_reward.mean().item(), self.batch_size)
             total_correct += all_correct.float().sum().item()
 
             # save results
             predicted_digits = torch.stack(predicted_digits).transpose(1, 0)
+            
+            # Monte Carlo sampling for locations. The predicted location at each
+            # time step is the mean of the M locations
             locs = torch.stack(locs).transpose(1, 0)
-            for i in range(x.shape[0]):
+            locs = locs.contiguous().view(self.M, -1, locs.shape[-2], locs.shape[-1])
+            locs = torch.mean(locs, dim=0)
+            
+            for i in range(self.batch_size):
                 results.append({
                     "locs": locs[i].tolist(),
                     "pred": predicted_digits[i].tolist(),
@@ -806,3 +853,32 @@ class SVHNTrainer:
             )
         else:
             print("[*] Loaded {} checkpoint @ epoch {}".format(filename, ckpt["epoch"]))
+
+    def load_pretrained_weights(self):
+        """Load the best copy of a model.
+
+        This is useful for 2 cases:
+        - Resuming training with the most recent model checkpoint.
+        - Loading the best validation model to evaluate on the test data.
+
+        Args:
+            best: if set to True, loads the best model.
+                Use this if you want to evaluate your model
+                on the test data. Else, set to False in which
+                case the most recent version of the checkpoint
+                is used.
+        """
+        print("[*] Loading pretrained weights from {}".format(self.pretrained_ckpt))
+
+        filename = self.model_name + "_model_best.pth.tar"
+        ckpt_path = os.path.join(self.pretrained_ckpt, filename)
+        ckpt = torch.load(ckpt_path)["model_state"]
+        
+        # Ignore context weights
+        new_ckpt = ckpt.copy() # Need to make a copy since ckpt is an ordered Dict
+        for k in ckpt.keys():
+            if "context" in k:
+                new_ckpt.pop(k, None)
+
+        # load weights from checkpoint
+        self.model.load_state_dict(new_ckpt, strict=False)
