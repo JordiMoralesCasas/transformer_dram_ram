@@ -86,7 +86,7 @@ class SVHNTrainer:
             self.num_test = len(self.test_loader.dataset)
         self.num_classes = 11
         self.num_channels = 1
-        self.end_class = 0
+        self.end_class = config.end_class
         
         self.image_size = 54 if config.preprocess == "crop" else int(config.preprocess)
 

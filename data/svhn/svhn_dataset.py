@@ -10,7 +10,7 @@ class SVHNDataset(torch.utils.data.Dataset):
     task on the SVHN dataset.
     """
     
-    def __init__(self, root_folder: str, split_data: list[dict], transforms=None, debug_run=False, do_preprocessing=False, snapshot=False):
+    def __init__(self, root_folder: str, split_data: list[dict], end_class: int, transforms=None, debug_run=False, do_preprocessing=False, snapshot=False):
         """
         Initialize a Synthethic Dataset object
         Args:
@@ -31,6 +31,7 @@ class SVHNDataset(torch.utils.data.Dataset):
         self.transforms = transforms
         self.do_preprocessing = do_preprocessing
         self.snapshot = snapshot
+        self.end_class = end_class
 
     def __len__(self):
         return len(self.split_data)
@@ -145,7 +146,7 @@ class SVHNDataset(torch.utils.data.Dataset):
             img = self.transforms(img)
 
         # Get labels, we add an "end sequence" label (0) at the end
-        labels = [int(box["label"]) for box in current_sample["boxes"]] + [0]
+        labels = [int(box["label"]) for box in current_sample["boxes"]] + [self.end_class]
 
         # Max length is 5 (as in the paper)
         labels = labels[:5]

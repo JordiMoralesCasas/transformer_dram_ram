@@ -3,6 +3,7 @@ from trainers.utils import plot_images
 import random
 import os
 import pickle
+import json
 
 import torch
 from torchvision import datasets
@@ -14,6 +15,9 @@ from transformers import AutoImageProcessor
 from data.svhn.svhn_dataset import SVHNDataset
 from data.svhn.svhn_collator import DataCollatorForSVHN
 from data.svhn.svhn_utils import DigitStructFile
+
+from data.svhn.multinumber_collator import DataCollatorForMultiNumberSVHN
+from data.svhn.multinumber_dataset import MultiNumberSVHNDataset
 
 
 def get_train_valid_loader_mnist(
@@ -133,6 +137,7 @@ def get_test_loader_mnist(data_dir, batch_size, num_workers=4, pin_memory=False)
 def get_train_valid_loader_svhn(
     data_dir,
     batch_size,
+    end_class,
     random_seed,
     num_workers=4,
     pin_memory=False,
@@ -217,8 +222,8 @@ def get_train_valid_loader_svhn(
             transforms.Normalize((0.1307,), (0.3081,))])
     
     # load dataset
-    train_dataset = SVHNDataset(data_dir, train_data, transforms=trans, debug_run=debug_run, do_preprocessing=do_preprocessing, snapshot=snapshot)
-    val_dataset = SVHNDataset(data_dir, val_data, transforms=trans, debug_run=debug_run, do_preprocessing=do_preprocessing, snapshot=snapshot)
+    train_dataset = SVHNDataset(data_dir, train_data, end_class, transforms=trans, debug_run=debug_run, do_preprocessing=do_preprocessing, snapshot=snapshot)
+    val_dataset = SVHNDataset(data_dir, val_data, end_class, transforms=trans, debug_run=debug_run, do_preprocessing=do_preprocessing, snapshot=snapshot)
     
     data_collator = DataCollatorForSVHN(image_processor=image_processor)
     train_loader = DataLoader(
@@ -236,7 +241,7 @@ def get_train_valid_loader_svhn(
     return (train_loader, valid_loader)
 
 
-def get_test_loader_svhn(data_dir, batch_size, num_workers=4, pin_memory=False, debug_run=False, do_preprocessing=False, use_encoder=False, snapshot=False):
+def get_test_loader_svhn(data_dir, batch_size, end_class, num_workers=4, pin_memory=False, debug_run=False, do_preprocessing=False, use_encoder=False, snapshot=False):
     """Test dataloader for the SVHN Dataset.
 
     Args:
@@ -291,7 +296,7 @@ def get_test_loader_svhn(data_dir, batch_size, num_workers=4, pin_memory=False, 
             transforms.Normalize((0.1307,), (0.3081,))])
     
     # load dataset
-    test_dataset = SVHNDataset(data_dir, test_data, trans, debug_run=debug_run, do_preprocessing=do_preprocessing, snapshot=snapshot)
+    test_dataset = SVHNDataset(data_dir, test_data, end_class, trans, debug_run=debug_run, do_preprocessing=do_preprocessing, snapshot=snapshot)
 
     test_loader = DataLoader(
         test_dataset, shuffle=False,
@@ -299,3 +304,62 @@ def get_test_loader_svhn(data_dir, batch_size, num_workers=4, pin_memory=False, 
         batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
 
     return test_loader
+
+
+def get_loader_multinumber(
+    data_dir,
+    split,
+    batch_size,
+    end_class,
+    separator_class,
+    num_workers=4,
+    pin_memory=False,
+    debug_run=False,
+    use_encoder=False,
+    snapshot=False
+):
+    """Train and validation data loaders for the SVHN Dataset.
+
+    Args:
+        data_dir (str): path directory to the dataset.
+        batch_size (int): how many samples per batch to load.
+        random_seed (int): fix seed for reproducibility.
+        show_sample (bool): plot 9x9 sample grid of the dataset.
+        num_workers (ing): number of subprocesses to use when loading 
+            the dataset.
+        pin_memory (bool): hether to copy tensors into CUDA pinned 
+            memory. Set it to True if using GPU.
+        do_preprocessing (bool): Wether to apply the preprocessing
+            method (crop around digits, resize and random/center crop).
+        
+    """
+    # define transforms
+    image_processor, trans = None, None        
+    if not snapshot:
+        # For large images, we can use either an ViT encoder or a ResNet feature extractor
+        if use_encoder:
+            image_processor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224")
+        else:
+            trans = transforms.Compose([
+                transforms.Resize((224, 224,)),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
+    else:
+        trans = transforms.Compose([
+            transforms.Grayscale(),
+            transforms.Resize((54, 54)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))])
+    
+    # load dataset
+    dataset = MultiNumberSVHNDataset(data_dir, split, end_class, separator_class, transforms=trans, debug_run=debug_run, snapshot=snapshot)
+    
+    data_collator = DataCollatorForMultiNumberSVHN(image_processor=image_processor)
+    loader = DataLoader(
+        dataset, 
+        shuffle=True if split == "train" else False,
+        collate_fn=data_collator,
+        batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
+
+    return loader

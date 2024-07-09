@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch
 
 import modelling.modules as modules
-from torchvision.models import resnet18
+from torchvision.models import resnet18, resnet50, resnet34
 
 """
  Based on https://github.com/kevinzakka/recurrent-visual-attention/blob/master/model.py
@@ -122,7 +122,7 @@ class DeepRecurrentAttention(nn.Module):
     def __init__(
         self, g, k, s, c, h_g, h_l, std, hidden_size, cell_size, inner_size, n_heads, 
         num_classes, core_type, device, transformer_model, use_encoder, image_size,
-        snapshot
+        snapshot, resnet=18
     ):
         """Constructor.
 
@@ -161,10 +161,11 @@ class DeepRecurrentAttention(nn.Module):
             else: 
                 # Use resnet50 as our context network. Freeze all layers except the last,
                 # which is replaced by a FC layer to project features to hidden size
-                self.context = resnet18(pretrained=True)
+                self.context = resnet18(pretrained=True) if resnet == 18 else resnet50(pretrained=True)
                 for param in self.context.parameters():
                     param.requires_grad = False
-                self.context.fc = nn.Linear(512, hidden_size)
+                output_size = 512 if resnet == 18 else 2048
+                self.context.fc = nn.Linear(output_size, hidden_size)
         else:
             strd = 2 if image_size > 54 and image_size < 224 else 1
             self.context = modules.ContextNetwork(hidden_size, stride=strd, img_size=image_size, snapshot=snapshot)

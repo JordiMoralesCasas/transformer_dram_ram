@@ -101,7 +101,7 @@ data_arg.add_argument(
     "--task",
     type=str,
     default="mnist",
-    choices=["mnist", "svhn"],
+    choices=["mnist", "svhn", "multinumber"],
     help="Task to solve.",
 )
 data_arg.add_argument(
@@ -109,6 +109,18 @@ data_arg.add_argument(
     default="crop",
     help='What kind of preprocessing on the SVHN dataset. If set to "crop", crop images around the digit bounding boxes. If an integer N is provided, \
         the digits are randomly placed in an image of size NxN.',
+)
+data_arg.add_argument(
+    "--end_class",
+    type=int,
+    default=0,
+    help="What ID to assign to the 'end' class, which indicated the end of the prediction.",
+)
+data_arg.add_argument(
+    "--separator_class",
+    type=int,
+    default=11,
+    help="What ID to assign to the 'separator' class, which indicates the end of the first number and start of the second one in the Multi Digit task.",
 )
 data_arg.add_argument(
     "--valid_size",
