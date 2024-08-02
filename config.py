@@ -40,6 +40,9 @@ context_arg = add_argument_group("Context Network Params")
 context_arg.add_argument(
     "--snapshot", type=str2bool, default=False, help="Wether to use a snapshot of the input image as the context."
     )
+context_arg.add_argument(
+    "--keep_context", type=str2bool, default=False, help="Wether to keep the context network weights when loading a pretrained model."
+    )
 
 # core network params
 core_arg = add_argument_group("Core Network Params")
@@ -114,7 +117,7 @@ data_arg.add_argument(
     "--end_class",
     type=int,
     default=0,
-    help="What ID to assign to the 'end' class, which indicated the end of the prediction.",
+    help="What ID to assign to the 'end' class, which indicates the end of the prediction.",
 )
 data_arg.add_argument(
     "--separator_class",

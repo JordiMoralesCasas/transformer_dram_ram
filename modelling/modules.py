@@ -471,7 +471,7 @@ class CoreNetworkDoubleTransformer(nn.Module):
             config = AutoConfig.from_pretrained("gpt2")
             config.hidden_size = self.hidden_size
             config.vocab_size = 0
-            config.max_position_embeddings = 48
+            config.max_position_embeddings = 48 #TODO: This depends on the number of glimpses
             config.num_hidden_layers = 1
             config.n_head = n_heads
             config.n_inner = inner_size
@@ -563,6 +563,9 @@ class CoreNetworkDoubleTransformer(nn.Module):
         output = self.tr2(
             inputs_embeds=self.past_states,
             encoder_hidden_states=self.encoder_hidden_states)
+        """# for TrXL
+        output = self.tr2(
+            inputs_embeds=self.past_states)"""
         h_t_2 = output.last_hidden_state[:, -1, :]
 
         return (h_t_1, h_t_2)         
@@ -637,9 +640,9 @@ class LocationNetwork(nn.Module):
 
         self.std = std
 
-        hid_size = input_size // 2
-        self.fc = nn.Linear(input_size, hid_size)
-        self.fc_lt = nn.Linear(hid_size, output_size)
+        hiden_size = input_size // 2
+        self.fc = nn.Linear(input_size, hiden_size)
+        self.fc_lt = nn.Linear(hiden_size, output_size)
 
     def forward(self, h_t):
         # compute mean
@@ -647,7 +650,7 @@ class LocationNetwork(nn.Module):
         mu = torch.tanh(self.fc_lt(feat))
 
         # reparametrization trick
-        l_t = torch.distributions.Normal(mu, self.std).rsample()
+        l_t = Normal(mu, self.std).rsample()
         l_t = l_t.detach()
         log_pi = Normal(mu, self.std).log_prob(l_t)
 
@@ -714,10 +717,13 @@ class ContextNetwork(nn.Module):
         
         # wether we will be using snapshots of the original image as context
         self.snapshot = snapshot
+        
+        channels = (64, 64, 128)
+        #channels = (64, 128, 256)
 
-        self.conv1 = nn.Conv2d(1, 64, stride=stride, kernel_size=kernel_sizes[0])
-        self.conv2 = nn.Conv2d(64, 64, kernel_size=kernel_sizes[1])
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=kernel_sizes[2])
+        self.conv1 = nn.Conv2d(1, channels[0], stride=stride, kernel_size=kernel_sizes[0])
+        self.conv2 = nn.Conv2d(channels[0], channels[1], kernel_size=kernel_sizes[1])
+        self.conv3 = nn.Conv2d(channels[1], channels[2], kernel_size=kernel_sizes[2])
         self.pool = nn.MaxPool2d((2,2))
         
         if img_size == 54:
@@ -728,8 +734,9 @@ class ContextNetwork(nn.Module):
             final_feat_map_size = 5
         elif img_size == 186:
             final_feat_map_size = 9
-            
-        self.fc = nn.Linear(128*final_feat_map_size*final_feat_map_size, hidden_size)
+        
+        
+        self.fc = nn.Linear(channels[-1]*final_feat_map_size*final_feat_map_size, hidden_size)
 
     def forward(self, x):
         if self.snapshot:

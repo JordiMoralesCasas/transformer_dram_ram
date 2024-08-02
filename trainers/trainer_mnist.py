@@ -3,6 +3,7 @@ import time
 import shutil
 import pickle
 import json
+from flops_profiler.profiler import FlopsProfiler
 
 import torch
 import torch.nn.functional as F
@@ -418,6 +419,11 @@ class MNISTTrainer:
 
         # load the best checkpoint
         self.load_checkpoint(best=self.best)
+        
+        # compute the number of floating point operations per forward pass of the model
+        # we assume a batch size of 1 and the maximum number of glimpses
+        flops = self.compute_flops()
+        print(f"Number of FLOPS (GFLOPS): {flops} ({flops/10**9})")
 
         for i, (x, y) in enumerate(self.test_loader):
             x, y = x.to(self.device), y.to(self.device)
@@ -482,6 +488,41 @@ class MNISTTrainer:
         # Save resuls to file
         if self.save_results:
             self.write_results(results)
+      
+            
+    @torch.no_grad()
+    def compute_flops(self):
+        """Evaluate the RAM model on the validation set.
+        """
+        
+        # start counting FLOPS
+        prof = FlopsProfiler(self.model)
+        prof.start_profile()
+        
+        x = torch.zeros((1, 1, 28, 28), device=self.device)
+
+        # duplicate M times
+        x = x.repeat(self.M, 1, 1, 1)
+
+        # initialize location vector and hidden state
+        self.batch_size = x.shape[0]
+        h_t, l_t = self.reset()
+
+        # initialize transformer's buffer for past glimpses
+        if self.core_type == "transformer":
+            self.model.reset_glimpse_buffer(self.batch_size, self.device)
+
+        for t in range(self.num_glimpses - 1):
+            # forward pass through model
+            h_t, l_t, _, _ = self.model(x, l_t, h_t)
+        # last iteration
+        self.model(x, l_t, h_t, last=True)
+        
+        prof.stop_profile()
+        flops = prof.get_total_flops()
+        prof.end_profile()
+
+        return flops
             
             
     def write_results(self, results):

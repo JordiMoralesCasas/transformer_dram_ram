@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torchsummary import summary
+from flops_profiler.profiler import FlopsProfiler
 
 from tqdm import tqdm
 from torch.optim.lr_scheduler import ReduceLROnPlateau, ExponentialLR
@@ -657,6 +658,12 @@ class MultiNumberTrainer:
 
         # load the best checkpoint
         self.load_checkpoint(best=self.best)
+        
+        # compute the number of floating point operations per forward pass of the model
+        # we assume a batch size of 1 and the maximum number of glimpses
+        flops = self.compute_flops()
+        print(f"Number of FLOPS (GFLOPS): {flops} ({flops/10**9})")        
+        
         tic = time.time()
         with tqdm(total=self.num_test) as pbar:
             for i, batch in enumerate(self.test_loader):
@@ -813,6 +820,52 @@ class MultiNumberTrainer:
         return perc, rews.avg
     
     
+    @torch.no_grad()
+    def compute_flops(self):
+        """Evaluate the RAM model on the validation set.
+        """
+        # start counting FLOPS
+        prof = FlopsProfiler(self.model)
+        prof.start_profile()
+        
+        x = torch.zeros((1, 3 if self.image_size == 224 else 1, self.image_size, self.image_size), device=self.device)
+
+        # initialize location vector and hidden state
+        self.batch_size = x.shape[0]
+        
+        # duplicate M times (Monte Carlo sampling)
+        x = x.repeat(self.M, 1, 1, 1) 
+
+        # first iteration: Create context vector, initialize states and
+        # get location for first glimpse
+        h_t, l_t, _, _ = self.model(x, None, None, first=True)
+        
+        # if we have a rgb image, convert to grayscale
+        if x.shape[1] == 3:
+            x = x.mean(dim=1)
+            x = x[:, None, :, :]
+        
+        for d_i in range(6):
+            # exploration steps
+            for t in range(self.explore_steps):
+                # forward pass through model
+                h_t, l_t, _, _ = self.model(x, l_t, h_t)
+                
+            # prediction steps
+            for t in range(self.num_glimpses - 1):
+                # forward pass through model
+                h_t, l_t, _, _ = self.model(x, l_t, h_t)
+
+            # last iteration of current digit
+            h_t, l_t, _, _, _ = self.model(x, l_t, h_t, last=True)
+            
+        prof.stop_profile()
+        flops = prof.get_total_flops()
+        prof.end_profile()
+
+        return flops
+    
+    
     def write_results(self, results):
         filename = self.model_name + "_results.json"
         res_path = os.path.join(self.ckpt_dir, filename)
@@ -894,9 +947,15 @@ class MultiNumberTrainer:
         
         # Ignore context weights
         new_ckpt = ckpt.copy() # Need to make a copy since ckpt is an ordered Dict
-        for k in ckpt.keys():
+        """for k in ckpt.keys():
             if "context" in k:
-                new_ckpt.pop(k, None)
+                new_ckpt.pop(k, None)"""
+                
+        # When loading a model pretrained in single number task, do not load the 
+        # classification head (from 11 to 12 classes)
+        for k in ckpt.keys():
+                if "classifier" in k:
+                    new_ckpt.pop(k, None)
 
         # load weights from checkpoint
         self.model.load_state_dict(new_ckpt, strict=False)
