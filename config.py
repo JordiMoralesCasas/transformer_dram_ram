@@ -59,7 +59,7 @@ core_arg.add_argument(
     "--num_glimpses", type=int, default=6, help="# of glimpses, i.e. BPTT iterations"
 )
 core_arg.add_argument(
-    "--explore_steps", type=int, default=0, help="# of glimpses dedicated to explore, no prediction is expected."
+    "--explore_steps", type=int, default=0, help="# of glimpses dedicated to explore at the beggining of the sequence, no prediction is expected."
 )
 core_arg.add_argument(
     "--hidden_size", type=int, default=256, help="hidden size of rnn"
@@ -80,22 +80,10 @@ reinforce_arg.add_argument(
     "--std", type=float, default=0.05, help="gaussian policy standard deviation"
 )
 reinforce_arg.add_argument(
-    "--epsilon_greedy",
-    type=str2bool,
-    default=False,
-    help="Whether to follow an epsilon-greedy strategy for exploration-exploitation",
-)
-reinforce_arg.add_argument(
     "--M", type=int, default=1, help="Monte Carlo sampling for valid and test sets"
 )
 reinforce_arg.add_argument(
     "--rl_loss_coef", type=float, default=0.01, help="Coeficient that weights the REINFORCE loss term."
-)
-
-# Inference (LM) params
-inference_arg = add_argument_group("Inference Params")
-inference_arg.add_argument(
-    "--max_length", type=int, default=5, help="maximum answer length to be produced during inference."
 )
 
 # data params
@@ -236,7 +224,6 @@ misc_arg.add_argument(
     default=None,
     help="Checkpoint from which start training.",
 )
-
 misc_arg.add_argument(
     "--wandb_name",
     type=str,

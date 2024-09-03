@@ -26,7 +26,6 @@ def get_train_valid_loader_mnist(
     random_seed,
     valid_size=0.1,
     shuffle=True,
-    show_sample=False,
     num_workers=4,
     pin_memory=False,
 ):
@@ -35,17 +34,23 @@ def get_train_valid_loader_mnist(
     If using CUDA, num_workers should be set to 1 and pin_memory to True.
 
     Args:
-        data_dir (path): path directory to the dataset.
-        batch_size (int): how many samples per batch to load.
-        random_seed (int): fix seed for reproducibility.
-        valid_size (float): percentage split of the training set used for
-            the validation set. Should be a float in the range [0, 1].
-            In the paper, this number is set to 0.1.
-        shuffle (bool): whether to shuffle the train/validation indices.
-        show_sample (bool): plot 9x9 sample grid of the dataset.
-        num_workers (int): number of subprocesses to use when loading the dataset.
-        pin_memory (bool): whether to copy tensors into CUDA pinned memory. Set it to
-            True if using GPU.
+        data_dir (path): 
+            Path directory to the dataset.
+        batch_size (int): 
+            How many samples per batch to load.
+        random_seed (int): 
+            Fix seed for reproducibility.
+        valid_size (float): 
+            Percentage split of the training set used for the validation set. 
+            Should be a float in the range [0, 1]. In the paper, this number is
+            set to 0.1.
+        shuffle (bool):
+            Whether to shuffle the train/validation indices.
+        num_workers (int): 
+            Number of subprocesses to use when loading the dataset.
+        pin_memory (bool): 
+            whether to copy tensors into CUDA pinned memory. Set it to True if
+            using GPU.
     """
     error_msg = "[!] valid_size should be in the range [0, 1]."
     assert (valid_size >= 0) and (valid_size <= 1), error_msg
@@ -86,21 +91,6 @@ def get_train_valid_loader_mnist(
         pin_memory=pin_memory,
     )
 
-    # visualize some images
-    if show_sample:
-        sample_loader = DataLoader(
-            dataset,
-            batch_size=9,
-            shuffle=shuffle,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-        )
-        data_iter = iter(sample_loader)
-        images, labels = data_iter.next()
-        X = images.numpy()
-        X = np.transpose(X, [0, 2, 3, 1])
-        plot_images(X, labels)
-
     return (train_loader, valid_loader)
 
 
@@ -110,11 +100,14 @@ def get_test_loader_mnist(data_dir, batch_size, num_workers=4, pin_memory=False)
     If using CUDA, num_workers should be set to 1 and pin_memory to True.
 
     Args:
-        data_dir: path directory to the dataset.
-        batch_size: how many samples per batch to load.
-        num_workers: number of subprocesses to use when loading the dataset.
-        pin_memory: whether to copy tensors into CUDA pinned memory. Set it to
-            True if using GPU.
+        data_dir (str): 
+            Path directory to the dataset.
+        batch_size (int): 
+            How many samples per batch to load.
+        num_workers (int): 
+            Number of subprocesses to use when loading the dataset.
+        pin_memory (bool): 
+            Whether to copy tensors into CUDA pinned memory. Set it to True if using GPU.
     """
     # define transforms
     normalize = transforms.Normalize((0.1307,), (0.3081,))
@@ -149,16 +142,27 @@ def get_train_valid_loader_svhn(
     """Train and validation data loaders for the SVHN Dataset.
 
     Args:
-        data_dir (str): path directory to the dataset.
-        batch_size (int): how many samples per batch to load.
-        random_seed (int): fix seed for reproducibility.
-        show_sample (bool): plot 9x9 sample grid of the dataset.
-        num_workers (ing): number of subprocesses to use when loading 
-            the dataset.
-        pin_memory (bool): hether to copy tensors into CUDA pinned 
-            memory. Set it to True if using GPU.
-        do_preprocessing (bool): Wether to apply the preprocessing
-            method (crop around digits, resize and random/center crop).
+        data_dir (str): 
+            Path directory to the dataset.
+        batch_size (int): 
+            How many samples per batch to load.
+        end_class (int): 
+            Label corresponding to the "End" of prediction.
+        random_seed (int): 
+            Fix seed for reproducibility.
+        num_workers (ing): 
+            Number of subprocesses to use when loading the dataset.
+        pin_memory (bool): 
+            Whether to copy tensors into CUDA pinned memory. Set it to True if using GPU.
+        debug_run (bool): 
+            Wether we are running a DEBUG run. A smaller dataset will be used.
+        do_preprocessing (bool): 
+            Wether to apply the preprocessing method (crop around digits,
+            resize and random/center crop).
+        use_encoder (bool):
+            Wether a Transformer encoder will be used for context.
+        snapshot (bool):
+            Wether we are in snapshot mode.
         
     """ 
     if do_preprocessing != "crop":   
@@ -245,13 +249,26 @@ def get_test_loader_svhn(data_dir, batch_size, end_class, num_workers=4, pin_mem
     """Test dataloader for the SVHN Dataset.
 
     Args:
-        data_dir (str): path directory to the dataset.
-        batch_size (int): how many samples per batch to load.
-        num_workers (int): number of subprocesses to use when loading the dataset.
-        pin_memory (bool): whether to copy tensors into CUDA pinned memory. Set it to
-            True if using GPU.
-        do_preprocessing (bool): Wether to apply the preprocessing
-            method (crop around digits, resize and random/center crop).
+        data_dir (str): 
+            Path directory to the dataset.
+        batch_size (int): 
+            How many samples per batch to load.
+        end_class (int): 
+            Label corresponding to the "End" of prediction.
+        num_workers (ing): 
+            Number of subprocesses to use when loading the dataset.
+        pin_memory (bool): 
+            Whether to copy tensors into CUDA pinned memory. Set it to True if using GPU.
+        debug_run (bool): 
+            Wether we are running a DEBUG run. A smaller dataset will be used.
+        do_preprocessing (bool): 
+            Wether to apply the preprocessing method (crop around digits,
+            resize and random/center crop).
+        use_encoder (bool):
+            Wether a Transformer encoder will be used for context.
+        snapshot (bool):
+            Wether we are in snapshot mode.
+            
     """
     if do_preprocessing != "crop":   
         try:
@@ -318,19 +335,31 @@ def get_loader_multinumber(
     use_encoder=False,
     snapshot=False
 ):
-    """Train and validation data loaders for the SVHN Dataset.
+    """
+    Train and validation data loaders for the synthetic multiple number 
+    dataset.
 
-    Args:
-        data_dir (str): path directory to the dataset.
-        batch_size (int): how many samples per batch to load.
-        random_seed (int): fix seed for reproducibility.
-        show_sample (bool): plot 9x9 sample grid of the dataset.
-        num_workers (ing): number of subprocesses to use when loading 
-            the dataset.
-        pin_memory (bool): hether to copy tensors into CUDA pinned 
-            memory. Set it to True if using GPU.
-        do_preprocessing (bool): Wether to apply the preprocessing
-            method (crop around digits, resize and random/center crop).
+    Args:   
+        data_dir (str): 
+            Path directory to the dataset.
+        split (str):
+            Current split name.
+        batch_size (int): 
+            How many samples per batch to load.
+        end_class (int): 
+            Label corresponding to the "End" of prediction.
+        separator_class (int): 
+            Label corresponding to the "Separator".
+        num_workers (ing): 
+            Number of subprocesses to use when loading the dataset.
+        pin_memory (bool): 
+            Whether to copy tensors into CUDA pinned memory. Set it to True if using GPU.
+        debug_run (bool): 
+            Wether we are running a DEBUG run. A smaller dataset will be used.
+        use_encoder (bool):
+            Wether a Transformer encoder will be used for context.
+        snapshot (bool):
+            Wether we are in snapshot mode.
         
     """
     # define transforms
@@ -353,7 +382,7 @@ def get_loader_multinumber(
             transforms.Normalize((0.1307,), (0.3081,))])
     
     # load dataset
-    dataset = MultiNumberSVHNDataset(data_dir, split, end_class, separator_class, transforms=trans, debug_run=debug_run, snapshot=snapshot)
+    dataset = MultiNumberSVHNDataset(data_dir, split, end_class, separator_class, transforms=trans, debug_run=debug_run)
     
     data_collator = DataCollatorForMultiNumberSVHN(image_processor=image_processor)
     loader = DataLoader(

@@ -24,13 +24,20 @@ class MNISTTrainer:
     config file.
     """
 
-    def __init__(self, config, train_loader=None, test_loader=None, is_gridsearch=False):
+    def __init__(self, config, train_val_loader=None, test_loader=None, is_gridsearch=False):
         """
         Construct a new Trainer instance.
 
         Args:
-            config: object containing command line arguments.
-            data_loader: A data iterator.
+            config (argparse): 
+                Object containing command line arguments.
+            train_val_loader (tuple): 
+                Tuple with the train and validation dataloaders.
+            test_loader (Dataloader): 
+                Test dataloader (data iterator).
+            is_gridsearch (bool): 
+                Wether a gridsearch is being performed. Used mostly
+                to control WandB logging.
         """
         self.config = config
 
@@ -57,9 +64,9 @@ class MNISTTrainer:
         self.M = config.M
 
         # data params
-        if train_loader is not None:
-            self.train_loader = train_loader[0]
-            self.valid_loader = train_loader[1]
+        if train_val_loader is not None:
+            self.train_loader = train_val_loader[0]
+            self.valid_loader = train_val_loader[1]
             self.num_train = len(self.train_loader.sampler.indices)
             self.num_valid = len(self.valid_loader.sampler.indices)
         if test_loader is not None:
@@ -99,9 +106,12 @@ class MNISTTrainer:
 
         # configure wandb logging
         if self.use_wandb and not is_gridsearch:
+            # WANDB CONFIG
+            ENTITY = None
+            PROJECT = None
             wandb.init(
-                entity="mcv_jordi",
-                project="mnist_zoom", 
+                entity=ENTITY,
+                project=PROJECT, 
                 name=self.wandb_name,
                 config=config)
 
@@ -492,9 +502,8 @@ class MNISTTrainer:
             
     @torch.no_grad()
     def compute_flops(self):
-        """Evaluate the RAM model on the validation set.
+        """Compute the number of flops required for a single sample.
         """
-        
         # start counting FLOPS
         prof = FlopsProfiler(self.model)
         prof.start_profile()

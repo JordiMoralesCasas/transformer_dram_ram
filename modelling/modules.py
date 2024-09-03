@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.distributions import Normal
-from transformers import GPT2Model, AutoConfig, TransfoXLModel, GPT2LMHeadModel, AutoModel
-from trainers.utils import PositionalEncoding2D, shift_right
+from transformers import GPT2Model, AutoConfig, TransfoXLModel, AutoModel
+from trainers.utils import PositionalEncoding2D
 from modelling.gtrxl import GTrXL_wrapper as GTrXL
 
 
@@ -19,23 +19,18 @@ class Retina:
     resolution for pixels further from `l`, resulting
     in a compressed representation of the original
     image `x`.
-
-    Args:
-        x: a 4D Tensor of shape (B, H, W, C). The minibatch
-            of images.
-        l: a 2D Tensor of shape (B, 2). Contains normalized
-            coordinates in the range [-1, 1].
-        g: size of the first square patch.
-        k: number of patches to extract in the glimpse.
-        s: scaling factor that controls the size of
-            successive patches.
-
-    Returns:
-        phi: a 5D tensor of shape (B, k, g, g, C). The
-            foveated glimpse of the image.
     """
 
     def __init__(self, g, k, s):
+        """
+        Contructor.
+        
+        Args:
+        g (int): size of the first square patch.
+        k (int): number of patches to extract in the glimpse.
+        s (int): scaling factor that controls the size of
+            successive patches.
+        """
         self.g = g
         self.k = k
         self.s = s
@@ -49,6 +44,15 @@ class Retina:
 
         The `k` patches are finally resized to (g, g) and
         concatenated into a tensor of shape (B, k, g, g, C).
+        
+        Args:
+            x (torch.Tensor): a 4D Tensor of shape (B, H, W, C). The minibatch
+                of images.
+            l (torch.Tensor): a 2D Tensor of shape (B, 2). Contains normalized
+                coordinates in the range [-1, 1].
+        Returns:
+            phi: a 5D tensor of shape (B, k, g, g, C). The
+                foveated glimpse of the image.
         """
         phi = []
         size = self.g
@@ -74,10 +78,10 @@ class Retina:
         """Extract a single patch for each image in `x`.
 
         Args:
-        x: a 4D Tensor of shape (B, H, W, C). The minibatch
-            of images.
-        l: a 2D Tensor of shape (B, 2).
-        size: a scalar defining the size of the extracted patch.
+            x (torch.Tensor): a 4D Tensor of shape (B, H, W, C). The minibatch
+                of images.
+            l (torch.tensor): a 2D Tensor of shape (B, 2).
+            size (int): a scalar defining the size of the extracted patch.
 
         Returns:
             patch: a 4D Tensor of shape (B, size, size, C)
@@ -115,42 +119,26 @@ class Retina:
 class GlimpseNetworkDRAM(nn.Module):
     """The glimpse network.
 
-    Combines the "what" and the "where" into a glimpse
-    feature vector `g_t`.
-
-    - "what": glimpse extracted from the retina.
-    - "where": location tuple where glimpse was extracted.
-
-    Concretely, feeds the output of the retina `phi` to
-    a fc layer and the glimpse location vector `l_t_prev`
-    to a fc layer. Finally, these outputs are fed each
-    through a fc layer and their sum is rectified.
-
-    In other words:
-
-        `g_t = relu( fc( fc(l) ) + fc( fc(phi) ) )`
-
-    Args:
-        h_g: hidden layer size of the fc layer for `phi`.
-        h_l: hidden layer size of the fc layer for `l`.
-        g: size of the square patches in the glimpses extracted
-        by the retina.
-        k: number of patches to extract per glimpse.
-        s: scaling factor that controls the size of successive patches.
-        c: number of channels in each image.
-        x: a 4D Tensor of shape (B, H, W, C). The minibatch
-            of images.
-        l_t_prev: a 2D tensor of shape (B, 2). Contains the glimpse
-            coordinates [x, y] for the previous timestep `t-1`.
-
-    Returns:
-        g_t: a 2D tensor of shape (B, hidden_size).
-            The glimpse representation returned by
-            the glimpse network for the current
-            timestep `t`.
+    Uses the location predicted in the previous step to extract
+    a glimpse around this position. The resulting glimpse is feed
+    through a convlutional network to obtain a glimpse vector. 
+    Positional information is then added following a sinusoidal positional
+    encoding.
     """
 
     def __init__(self, g, k, s, c, hidden_size, kernel_sizes=(5, 3, 3), core_type="rnn"):
+        """
+        Contructor.
+        
+        Args:
+            g (int): size of the square patches in the glimpses extracted
+                by the retina.
+            k (int): number of patches to extract per glimpse.
+            s (int): scaling factor that controls the size of successive patches.
+            c (int): number of channels in each image.
+            hidden_size (int): Hidden size of the internal states.
+            kernel_sizes (List[int]): Kernel sizes of the three convolutional layers
+        """
         super().__init__()
 
         self.retina = Retina(g, k, s)
@@ -175,6 +163,22 @@ class GlimpseNetworkDRAM(nn.Module):
             self.pos_encoding = PositionalEncoding2D(hidden_size)
 
     def forward(self, x, l_t_prev):
+        """
+        Forward pass of the model.
+        
+        Args:
+            x (torch.Tensor): a 4D Tensor of shape (B, H, W, C). The minibatch
+                of images.
+            l_t_prev (torch.Tensor): a 2D tensor of shape (B, 2). Contains the glimpse
+                coordinates [x, y] for the previous timestep `t-1`.
+
+        Returns:
+            g_t: a 2D tensor of shape (B, hidden_size).
+                The glimpse representation returned by
+                the glimpse network for the current
+                timestep `t`.
+        """
+        
         # generate glimpse phi from image x
         phi = self.retina.foveate(x, l_t_prev, flatten=False)
 
@@ -284,22 +288,16 @@ class CoreNetworkRNN(nn.Module):
     In other words:
 
         `h_t = relu( fc(h_t_prev) + fc(g_t) )`
-
-    Args:
-        input_size: input size of the rnn.
-        hidden_size: hidden size of the rnn.
-        g_t: a 2D tensor of shape (B, hidden_size). The glimpse
-            representation returned by the glimpse network for the
-            current timestep `t`.
-        h_t_prev: a 2D tensor of shape (B, hidden_size). The
-            hidden state vector for the previous timestep `t-1`.
-
-    Returns:
-        h_t: a 2D tensor of shape (B, hidden_size). The hidden
-            state vector for the current timestep `t`.
     """
 
     def __init__(self, input_size, hidden_size):
+        """
+        Contructor.
+        
+        Args:
+            input_size (int): input size of the rnn.
+            hidden_size (int): hidden size of the rnn.
+        """
         super().__init__()
 
         self.input_size = input_size
@@ -309,6 +307,20 @@ class CoreNetworkRNN(nn.Module):
         self.h2h = nn.Linear(hidden_size, hidden_size)
 
     def forward(self, g_t, h_t_prev):
+        """
+        Forward step of the core network.
+        
+        Args:
+            g_t (torch.Tensor): a 2D tensor of shape (B, hidden_size). The glimpse
+                representation returned by the glimpse network for the
+                current timestep `t`.
+            h_t_prev (torch.Tensor): a 2D tensor of shape (B, hidden_size). The
+                hidden state vector for the previous timestep `t-1`.
+
+        Returns:
+            h_t: a 2D tensor of shape (B, hidden_size). The hidden
+                state vector for the current timestep `t`.
+        """
         h1 = self.i2h(g_t)
         h2 = self.h2h(h_t_prev)
         h_t = F.relu(h1 + h2)
@@ -318,29 +330,29 @@ class CoreNetworkRNN(nn.Module):
 class CoreNetworkTransformer(nn.Module):
     """Core Transformer network.
 
-    Extends the idea of the core RNN network to the transformer architecture,
-    concretely to that of GPT-2's decoder only model.
+    Extends the idea of the core RNN network to the transformer architecture.
     The agent's knowledge is not encoded in a single state `h_t` that is 
     sequentially updated, but instead we keep the history of all past glimpses
-    and the agent can attend to them at any time.
+    and states, and the agent can attend to them at any time.
 
     It takes the glimpse representation `g_t` as input, and self-attention is
     performed between all past glimpses to produce a new contextualized state
     `h_t`.
-
-    Args:
-        input_size: input size of the rnn.
-        hidden_size: hidden size of the rnn.
-        g_t: a 2D tensor of shape (B, hidden_size). The glimpse
-            representation returned by the glimpse network for the
-            current timestep `t`.
-
-    Returns:
-        h_t: a 2D tensor of shape (B, hidden_size). The hidden
-            state vector for the current timestep `t`.
     """
 
     def __init__(self, input_size, hidden_size, transformer_model="gpt2"):
+        """
+        Constructor.
+        
+        Args:
+            input_size (int): input size of the rnn.
+            hidden_size (int): hidden size of the rnn.
+            transformer_model (str): Which transformer core to use (gpt2, trxl or gtrxl)
+
+        Returns:
+            h_t: a 2D tensor of shape (B, hidden_size). The hidden
+                state vector for the current timestep `t`.
+        """
         super().__init__()
 
         self.input_size = input_size
@@ -384,6 +396,18 @@ class CoreNetworkTransformer(nn.Module):
         self.past_glimpses = None
     
     def forward(self, g_t, _):
+        """
+        Forward step of the Transformer core network.
+        
+        Args:
+            g_t (torch.Tensor): a 2D tensor of shape (B, hidden_size). The glimpse
+                representation returned by the glimpse network for the
+                current timestep `t`.
+
+        Returns:
+            h_t: a 2D tensor of shape (B, hidden_size). The hidden
+                state vector for the current timestep `t`.
+        """
         # We need to keep track of all the transformer's inputs.
         # Using the generated past_key_values does not seem to work well
         # when backpropagating the loss (inplace operations)
@@ -407,25 +431,18 @@ class CoreNetworkLSTM(nn.Module):
     encodes the knowledge about past glimpses, which is then used for predicting
     the digits; and the second one that takes the knowledge from the 
     context vector (whole input image) and the hidden states from the first layer
-    to produce hidden states used for producing the next glimpse locations and
+    to produce hidden states used for choosing the next glimpse locations and
     the baselines (expected total Reward).
-    ...
-
-    Args:
-        input_size: input size of the rnn.
-        hidden_size: hidden size of the rnn.
-        g_t: a 2D tensor of shape (B, hidden_size). The glimpse
-            representation returned by the glimpse network for the
-            current timestep `t`.
-        h_t_prev: a 2D tensor of shape (B, hidden_size). The
-            hidden state vector for the previous timestep `t-1`.
-
-    Returns:
-        h_t: a 2D tensor of shape (B, hidden_size). The hidden
-            state vector for the current timestep `t`.
     """
 
     def __init__(self, input_size, hidden_size):
+        """
+        Constructor.
+        
+        Args:
+            input_size (int): input size of the LSTM.
+            hidden_size (int): hidden size of the LSTM.        
+        """
         super().__init__()
 
         self.input_size = input_size
@@ -434,6 +451,21 @@ class CoreNetworkLSTM(nn.Module):
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers=2, batch_first=True)
 
     def forward(self, g_t, out_prev):
+        """
+        Forward step of the LSTM core network.
+        
+        Args:
+            g_t (torch.Tensor): a 2D tensor of shape (B, hidden_size). The glimpse
+                representation returned by the glimpse network for the
+                current timestep `t`.
+            out_prev (torch.Tensor): a 2D tensor of shape (B, hidden_size). The
+                hidden state vector for the previous timestep `t-1`.
+
+        Returns:
+            h_t: a 2D tensor of shape (B, hidden_size). The hidden
+                state vector for the current timestep `t`.
+        
+        """
         _, (h_t, c_t) = self.lstm(g_t[:, None, :], out_prev)
         return (h_t, c_t)
     
@@ -445,8 +477,10 @@ class CoreNetworkDoubleTransformer(nn.Module):
     two single-layer transformers, the second one taking the output 
     hidden states of the first as inputs.
 
-    The context vector is fed to the second (top) at the beginning 
-    of the generation to include this information.
+    The context vector is fed to the second Transformer (location 
+    Transformer) at the beginning of the generation to include this
+    information. It is also possible to use a pretrained Transformer
+    encoder to provide the context.
 
     Args:
         input_size: input size of the rnn.
@@ -461,6 +495,17 @@ class CoreNetworkDoubleTransformer(nn.Module):
     """
 
     def __init__(self, input_size, hidden_size, inner_size, n_heads, transformer_model="gpt2", use_encoder=False):
+        """
+        Constructor.
+        Args:
+            input_size (int): input size of the transformers.
+            hidden_size (int): hidden size of the transformers.
+            inner_size (int): inner size of the transformers (inner projections).
+            n_heads (int): Number of attention heads
+            transformer_model (str): Which transformer core to use (gpt2, trxl or gtrxl)
+          use_encoder (bool): Wether a Transformer encoder is used to provide context.
+
+        """
         super().__init__()
 
         self.input_size = input_size
@@ -522,13 +567,18 @@ class CoreNetworkDoubleTransformer(nn.Module):
         to do cross-attention.
 
         Args:
-            input_ids: 2d tensor (batch_size, seq_len). Contains the ids for the question
-              tokens.
+            pixel_values (torch.tensor): tensor containing a batch of image
+                tensors.
         """
         outputs_top = self.image_encoder(pixel_values=pixel_values)
         self.encoder_hidden_states = outputs_top.last_hidden_state
     
     def process_context(self, context):
+        """
+        Given the context image, a context vector is produced and then 
+        fed through the location transformer to provide the first
+        glimpse location.
+        """
         # In the first step, the second transformer has to produce
         # a hidden state for the context vector, which will be used for
         # producing the location for the first glimpse
@@ -542,6 +592,17 @@ class CoreNetworkDoubleTransformer(nn.Module):
         return h_t_2
 
     def forward(self, g_t):
+        """
+        Forward step.
+        Args:
+            g_t: a 2D tensor of shape (B, hidden_size). The glimpse
+                representation returned by the glimpse network for the
+                current timestep `t`.
+
+        Returns:
+            h_t: a 2D tensor of shape (B, hidden_size). The hidden
+                state vector for the current timestep `t`.
+        """
         # We need to keep track of all the transformer's inputs.
         # Using the generated past_key_values does not seem to work well
         # when backpropagating the loss (inplace operations)
@@ -584,23 +645,31 @@ class ActionNetwork(nn.Module):
     distribution conditioned on an affine transformation
     of the hidden state vector `h_t`, or in other words,
     the action network is simply a linear softmax classifier.
-
-    Args:
-        input_size: input size of the fc layer.
-        output_size: output size of the fc layer.
-        h_t: the hidden state vector of the core network
-            for the current time step `t`.
-
-    Returns:
-        a_t: output probability vector over the classes.
     """
 
     def __init__(self, input_size, output_size):
+        """
+        Constructor.
+        
+        Args:
+            input_size (int): input size of the fc layer.
+            output_size (int): output size of the fc layer.
+        """
         super().__init__()
 
         self.fc = nn.Linear(input_size, output_size)
 
     def forward(self, h_t):
+        """
+        Forward step.
+        
+        Args:
+            h_t: the hidden state vector of the core network
+                for the current time step `t`.
+
+        Returns:
+            a_t: output probability vector over the classes.
+        """
         a_t = F.log_softmax(self.fc(h_t), dim=1)
         return a_t
 
@@ -622,20 +691,17 @@ class LocationNetwork(nn.Module):
     Hence, the location `l_t` is chosen stochastically
     from a distribution conditioned on an affine
     transformation of the hidden state vector `h_t`.
-
-    Args:
-        input_size: input size of the fc layer.
-        output_size: output size of the fc layer.
-        std: standard deviation of the normal distribution.
-        h_t: the hidden state vector of the core network for
-            the current time step `t`.
-
-    Returns:
-        mu: a 2D vector of shape (B, 2).
-        l_t: a 2D vector of shape (B, 2).
     """
 
     def __init__(self, input_size, output_size, std):
+        """
+        Constructor.
+        
+        Args:
+            input_size (int): input size of the fc layer.
+            output_size (int): output size of the fc layer.
+            std (float): standard deviation of the normal distribution.
+        """
         super().__init__()
 
         self.std = std
@@ -645,6 +711,17 @@ class LocationNetwork(nn.Module):
         self.fc_lt = nn.Linear(hiden_size, output_size)
 
     def forward(self, h_t):
+        """
+        Forward step.
+        
+        Args:
+            h_t: the hidden state vector of the core network for
+                the current time step `t`.
+
+        Returns:
+            log_pi: a vector of length (B,).
+            l_t: a 2D vector of shape (B, 2).
+        """
         # compute mean
         feat = F.relu(self.fc(h_t.detach()))
         mu = torch.tanh(self.fc_lt(feat))
@@ -671,24 +748,32 @@ class BaselineNetwork(nn.Module):
     This network regresses the baseline in the
     reward function to reduce the variance of
     the gradient update.
-
-    Args:
-        input_size: input size of the fc layer.
-        output_size: output size of the fc layer.
-        h_t: the hidden state vector of the core network
-            for the current time step `t`.
-
-    Returns:
-        b_t: a 2D vector of shape (B, 1). The baseline
-            for the current time step `t`.
     """
 
     def __init__(self, input_size, output_size):
+        """
+        Constructor.
+        
+        Args:
+            input_size (int): input size of the fc layer.
+            output_size (int): output size of the fc layer.
+        """
         super().__init__()
 
         self.fc = nn.Linear(input_size, output_size)
 
     def forward(self, h_t):
+        """
+        Forward step.
+        
+        Args:
+            h_t: the hidden state vector of the core network
+                for the current time step `t`.
+
+        Returns:
+            b_t: a 2D vector of shape (B, 1). The baseline
+                for the current time step `t`.
+        """
         b_t = self.fc(h_t.detach())
         return b_t
 
@@ -701,25 +786,25 @@ class ContextNetwork(nn.Module):
     When using the LSTM core network, it will be used as the initial hidden
     state for the seconda layer of the network. When working with an (decoder)
     Transformer, it will be the first input of the second transformer.
-    
-    Args:
-        hidden_size: output size of the coarse vector.
-        x: a 4D tensor of shape (B, 1, width, height). The grayscale
-            input image.
-    
-    Return:
-        i_c: a 2D vector of shape (B, hidden_size). Coarse representation of 
-            the input image.
     """
     
     def __init__(self, hidden_size, stride, kernel_sizes=(5,3,3), img_size=54, snapshot=False):
+        """
+        Constructor.
+        
+        Args:
+            hidden_size: output size of the coarse vector.
+            stride (int): Convolution's stride.
+            kernel_sizes (List[int]): Kernel sizes of the three convolutional layers
+            img_size (int): Size of the context images
+            snapshot (bool): Wether we are in snapshot mode.
+        """
         super().__init__()
         
         # wether we will be using snapshots of the original image as context
         self.snapshot = snapshot
         
         channels = (64, 64, 128)
-        #channels = (64, 128, 256)
 
         self.conv1 = nn.Conv2d(1, channels[0], stride=stride, kernel_size=kernel_sizes[0])
         self.conv2 = nn.Conv2d(channels[0], channels[1], kernel_size=kernel_sizes[1])
@@ -739,6 +824,17 @@ class ContextNetwork(nn.Module):
         self.fc = nn.Linear(channels[-1]*final_feat_map_size*final_feat_map_size, hidden_size)
 
     def forward(self, x):
+        """
+        Forward step.
+        
+        Args:
+            x: a 4D tensor of shape (B, 1, width, height). The grayscale
+                input image.
+        
+        Return:
+            i_c: a 2D vector of shape (B, hidden_size). Coarse representation of 
+                the input image.
+        """
         if self.snapshot:
             x = F.interpolate(x, size=(54, 54))
             

@@ -1,29 +1,33 @@
 import torch
 import os
 from PIL import Image
-import numpy as np
-import cv2
 import json
 
 class MultiNumberSVHNDataset(torch.utils.data.Dataset):
     """
-    Dataset object for the multiple digit recognition
+    Dataset object for the synthetic multinumber digit recognition
     task on the SVHN dataset.
     """
     
-    def __init__(self, root_folder: str, split: str, end_class: int, separator_class: int, transforms=None, debug_run=False, do_preprocessing=False, snapshot=False):
+    def __init__(self, root_folder: str, split: str, end_class: int, separator_class: int, transforms=None, debug_run=False):
         """
-        Initialize a Synthethic Dataset object
+        Initialize a MultiNumber SVHN Dataset object.
         Args:
-            root_folder (str): path to the directory where SVHN
-                images are.
-            split_data (str): path to the pickle file containing
-                data of the current split.
-            transforms (torchvision.transform): Transforms to be 
-                applied to the images.
-            do_preprocessing (bool): Wether to do preprocessing step
-                on the images. See 'preprocess_crop' method for more details.
-            
+            root_folder (str): 
+                Path to the directory where SVHN images are.
+            split (str): 
+                Which is the current split (Train, Test or Val).
+            end_class (int): 
+                Label corresponding to the "End" of prediction.
+            separator_class (int): 
+                Label corresponding to the "Separator".
+            transforms (torchvision.transform): 
+                Transforms to be applied to the images.
+            debug_run (bool): 
+                Wether we are running a DEBUG run. If True, the resulting dataset
+                will have a size of 256. 
+        Returns:
+            Dataset sample.
         """
         self.root_folder = root_folder
         self.image_folder = os.path.join(root_folder, split)
@@ -36,8 +40,6 @@ class MultiNumberSVHNDataset(torch.utils.data.Dataset):
         if debug_run:
             self.split_data = self.split_data[:256]
         self.transforms = transforms
-        self.do_preprocessing = do_preprocessing
-        self.snapshot = snapshot
         self.end_class = end_class
         self.separator_class = separator_class
 
@@ -50,7 +52,7 @@ class MultiNumberSVHNDataset(torch.utils.data.Dataset):
         Get dataset example given an index.
 
         Args:
-            index (int): index of the desired dataset example
+            index (int): index of the current dataset example
 
         Returns:
             dict: Dataset example

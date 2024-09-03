@@ -11,7 +11,7 @@ from torchsummary import summary
 from flops_profiler.profiler import FlopsProfiler
 
 from tqdm import tqdm
-from torch.optim.lr_scheduler import ReduceLROnPlateau, ExponentialLR
+from torch.optim.lr_scheduler import ExponentialLR
 import wandb
 
 from modelling.model import DeepRecurrentAttention
@@ -30,8 +30,17 @@ class MultiNumberTrainer:
         Construct a new Trainer instance.
 
         Args:
-            config: object containing command line arguments.
-            data_loader: A data iterator.
+            config (argparse): 
+                Object containing command line arguments.
+            train_loader (Dataloader): 
+                Training dataloader (data iterator).
+            val_loader (Dataloader): 
+                Validation dataloader (data iterator).
+            test_loader (Dataloader): 
+                Test dataloader (data iterator).
+            is_gridsearch (bool): 
+                Wether a gridsearch is being performed. Used mostly
+                to control WandB logging.
         """
         self.config = config
 
@@ -65,16 +74,6 @@ class MultiNumberTrainer:
         self.M = config.M
         self.rl_loss_coef = config.rl_loss_coef
         self.std = config.std
-        self.epsilon_greedy = config.epsilon_greedy
-        if self.epsilon_greedy:
-            # epsilon-gready method for exploration-exploitation
-            # eps is the probability of taking a random action ("choosing a random location")
-            self.eps = 1.0 # at the beggining, always take random location
-            self.eps_min = 0.05
-            
-            # reach the minimum eps after N steps
-            num_steps = len(train_loader[0])*10
-            self.eps_decay = (self.eps - self.eps_min)/num_steps
 
         # data params
         if train_loader is not None:
@@ -117,7 +116,7 @@ class MultiNumberTrainer:
         self.resume = config.resume
         self.print_freq = config.print_freq
         self.plot_freq = config.plot_freq
-        self.model_name = "ram_{}_{}x{}_{}".format(
+        self.model_name = "dram_{}_{}x{}_{}".format(
             config.num_glimpses,
             config.patch_size,
             config.patch_size,
@@ -126,13 +125,16 @@ class MultiNumberTrainer:
 
         # configure wandb logging
         if self.use_wandb and not is_gridsearch:
+            # WANDB CONFIG
+            ENTITY = None
+            PROJECT = None
             wandb.init(
-                entity="mcv_jordi",
-                project="svhn_multinumber_zoom", 
+                entity=ENTITY,
+                project=PROJECT, 
                 name=self.wandb_name,
                 config=config)
 
-        # build RAM model
+        # build DRAM model
         self.model = DeepRecurrentAttention(
             self.patch_size,
             self.num_patches,
@@ -172,17 +174,6 @@ class MultiNumberTrainer:
                 'Total parameters': sum.total_params,
                 'Trainable parameters': sum.trainable_params
                 })
-
-    def epsilon_greedy_step(self):        
-        do_random = np.random.binomial(1, self.eps, 1)[0]        
-        std = 1 if do_random else self.std
-        
-        # Update the std
-        self.model.std = std
-        self.model.locator.std = std
-        
-        # Update eps
-        self.eps = max(self.eps_min, self.eps - self.eps_decay)
 
     def train(self):
         """Train the model on the training set.
@@ -269,10 +260,6 @@ class MultiNumberTrainer:
         with tqdm(total=self.num_train) as pbar:
             for i, batch in enumerate(self.train_loader):
                 self.optimizer.zero_grad()
-                
-                if self.epsilon_greedy:
-                    # call the epsilon greedy method
-                    self.epsilon_greedy_step()
 
                 x, y = batch.pixel_values.to(self.device), batch.labels.to(self.device)
 
@@ -424,23 +411,13 @@ class MultiNumberTrainer:
                 toc = time.time()
                 batch_time.update(toc - tic)
                 
-                
-                if self.epsilon_greedy:
-                    pbar.set_description(
-                        (
-                            "{:.1f}s - eps: {:.3f} - loss: {:.3f} - acc: {:.3f} ".format(
-                                (toc - tic), self.eps, loss.item(), acc.item()
-                            )
+                pbar.set_description(
+                    (
+                        "TRAINING: {:.1f}s - loss: {:.3f} - acc: {:.3f}".format(
+                            (toc - tic), loss.item(), acc.item()
                         )
                     )
-                else:
-                    pbar.set_description(
-                        (
-                            "TRAINING: {:.1f}s - loss: {:.3f} - acc: {:.3f}".format(
-                                (toc - tic), loss.item(), acc.item()
-                            )
-                        )
-                    )
+                )
                 pbar.update(self.batch_size)
 
             # log to wandb
@@ -454,7 +431,7 @@ class MultiNumberTrainer:
     
     @torch.no_grad()
     def validate(self, epoch):
-        """Evaluate the RAM model on the validation set.
+        """Evaluate the DRAM model on the validation set.
         """
         self.model.eval()
         
@@ -640,7 +617,7 @@ class MultiNumberTrainer:
 
     @torch.no_grad()
     def test(self):
-        """Test the RAM model.
+        """Test the DRAM model.
 
         This function should only be called at the very
         end once the model has finished training.
@@ -822,7 +799,7 @@ class MultiNumberTrainer:
     
     @torch.no_grad()
     def compute_flops(self):
-        """Evaluate the RAM model on the validation set.
+        """Compute the number of flops required for a single sample.
         """
         # start counting FLOPS
         prof = FlopsProfiler(self.model)

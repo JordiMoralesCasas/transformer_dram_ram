@@ -1,5 +1,8 @@
 """
 COPIED FROM https://github.com/opendilab/PPOxFamily/blob/main/chapter5_time/gtrxl.py
+Modified to allow for crossattention with standard Transformer's encoder hidden states (CrossAttentionGTrXL class).
+Also, a wrapper (GTrXL_wrapper) is created to better integrate the GTrXL with our existing code.
+
 
 Gated Transformer XL (GTrXL) <link https://arxiv.org/abs/1910.06764 link> is a stabilized transformer architecture for reinforcement learning.
 This document mainly includes:

@@ -8,8 +8,6 @@ from trainers.trainer_svhn import SVHNTrainer
 from trainers.trainer_multinumber import MultiNumberTrainer
 from config import get_config
 
-from transformers import AutoTokenizer
-
 
 def main(config):
     utils.prepare_dirs(config)
@@ -40,9 +38,9 @@ def main(config):
         )
         # Initialize Trainer for MNIST Dataset
         trainer = MNISTTrainer(config, train_loader=train_dloader, test_loader=test_dloader)
+        
     elif config.task == "svhn":
         # Load SVHN
-        config.data_dir = "/data/users/jmorales/svhn/"
         train_val_loader = None
         if config.is_train:
             train_val_loader = data_loaders.get_train_valid_loader_svhn(
@@ -66,25 +64,12 @@ def main(config):
             snapshot=config.snapshot,
             **kwargs,
         )
-        
-        """for i in train_val_loader[0]:
-            print(i.keys())
-            import cv2
-            import numpy as np
-            
-            #img = ((i["pixel_values"][1])*255).numpy()
-            print(i["pixel_values"][1].shape)
-            #cv2.imwrite("test_svhn_expand.png", np.moveaxis(img, 0, 2))
-            print(i["labels"].shape)
-            print(i["labels"][0])
-            exit(0)"""
             
         # Initialize Trainer for SVHN Dataset
         trainer = SVHNTrainer(config, train_val_loader=train_val_loader, test_loader=test_dloader)
         
     elif config.task == "multinumber":
-        # Load SVHN
-        config.data_dir = "/data/users/jmorales/svhn_multi_number/"
+        # Load synthetic MultiNumber dataset on SVHN
         train_loader, val_loader = None, None
         if config.is_train:
             train_loader = data_loaders.get_loader_multinumber(
@@ -120,19 +105,6 @@ def main(config):
                 snapshot=config.snapshot,
                 **kwargs,
             )
-        
-        """for i in train_loader:
-            print(i.keys())
-            import cv2
-            import numpy as np
-            
-            #img = ((i["pixel_values"][1])*255).numpy()
-            print(i["pixel_values"][1].shape)
-            #cv2.imwrite("test_svhn_expand.png", np.moveaxis(img, 0, 2))
-            print(i["labels"].shape)
-            print(i["labels"][0])
-            print(i["id"][0])
-            exit(0)"""
             
         # Initialize Trainer for SVHN Dataset
         trainer = MultiNumberTrainer(config, train_loader=train_loader, val_loader=val_loader, test_loader=test_dloader)

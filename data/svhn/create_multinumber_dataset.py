@@ -7,21 +7,21 @@ import random
 from tqdm import tqdm
 import json
 from multiprocessing import Pool
+import argparse
 
 from skimage.transform import resize
 from shapely.geometry import box, Polygon
 
-
 def create_sample(input):
-        id, numbers, img_folder = input
+        """
+        Create a dataset sample.
+        
+        """
+        id, numbers, img_folder, img_size, bbox_size = input
         current_sample = {
             "id": id,
             "numbers": []
             }
-        
-        # Data config
-        img_size = 224
-        bbox_size = 64
         
         # Initialize backgroud image
         new_img = np.zeros((img_size, img_size), dtype="uint8")
@@ -56,7 +56,6 @@ def create_sample(input):
             bbox_img = (resize(bbox_img, (bbox_size, bbox_size)) * 256).astype("uint8")
             
             # randomly paste the bbox on the background image.
-            # first, find 
             border = 5
             counter = 10
             while True:
@@ -93,7 +92,6 @@ def create_sample(input):
         img = Image.fromarray(new_img[:, :, None].repeat(3, 2))
         img.save(os.path.join(img_folder, f"{current_sample['id']}.png"))
         
-        
         # Decide label order
         # if both numbers have similar height...
         p1, p2 = numbers_positions[0], numbers_positions[1]
@@ -117,7 +115,25 @@ def create_sample(input):
         return current_sample
         
 # Create dataset
-def create_split(raw_data, split, save_dir, num_workers=8):
+def create_split(raw_data, split, save_dir, num_workers=8, img_size=224, bbox_size=64):
+    """
+    Create a split of the dataset.
+    
+    Args:
+        raw_data (dict): 
+            JSON file containing the raw data for the split.
+        split (str):
+            Which split to create.
+        save_dir (str):
+            Directory where the split data will be saved.
+        num_workers (int):
+            Size of the pool of workers to use when creating the data.
+        img_size (int):
+            Size of the new dataset images
+        bbox_size (int):
+            Size to which the cropped numbers will be reshaped.
+    
+    """
     assert split in ["train", "val", "test"], "Split must be 'train', 'val' or 'test'"
     
     if not os.path.exists(save_dir):
@@ -128,7 +144,7 @@ def create_split(raw_data, split, save_dir, num_workers=8):
             os.makedirs(img_folder)
     
     # Start pool of workers and create dataset data
-    pool_input = [(i, data, img_folder) for i, data in enumerate(raw_data)]
+    pool_input = [(i, data, img_folder, img_size, bbox_size) for i, data in enumerate(raw_data)]
     with Pool(num_workers) as pool:
       split_data = list(tqdm(pool.imap(create_sample, pool_input), total=len(pool_input), desc=f"Creating {split} split: "))
     
@@ -142,15 +158,37 @@ if __name__ == "__main__":
     """
         Create the synthetic Multiple Number Dataset
     """
+    
+    # Parse arguments
+    arg_lists = []
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--data_dir", type=str, default="/data/users/jmorales/svhn/", help="Directory with the original SVHN dataset."
+    )
+    parser.add_argument(
+        "--save_dir", type=str, default="/data/users/jmorales/svhn_multi_number", help="Directory where the new dataset will be saved."
+    )
+    parser.add_argument(
+        "--img_size", type=int, default=224, help="Size of the dataset samples."
+    )
+    parser.add_argument(
+        "--bbox_size", type=int, default=64, help="Size of the resized number's bounding box."
+    )
+    parser.add_argument(
+        "--dataset_length", type=int, default=500000, help="Length of the created dataset"
+    )
+    parser.add_argument(
+        "--num_workers", type=int, default=32, help="Size of the pool of workers."
+    )
+    args = parser.parse_args()
 
-    data_dir = "/data/users/jmorales/svhn/"
 
     # Load splits data
-    with open(data_dir + "train_data.pkl", "rb") as f:
+    with open(args.data_dir + "train_data.pkl", "rb") as f:
         train_data = pickle.load(f)
-    with open(data_dir + "val_data.pkl", "rb") as f:
+    with open(args.data_dir + "val_data.pkl", "rb") as f:
         val_data = pickle.load(f)
-    with open(data_dir + "test_data.pkl", "rb") as f:
+    with open(args.data_dir + "test_data.pkl", "rb") as f:
         test_data = pickle.load(f)
     
     print("Filter data by length...")
@@ -162,11 +200,8 @@ if __name__ == "__main__":
     all_data = [i for i in all_data if len(i["boxes"]) <= N]
     print("Size after filtering:", len(all_data))
 
-    # Length of the created dataset
-    dataset_length = 500000
-
     dataset = []
-    for i in range(dataset_length):
+    for i in range(args.dataset_length):
         # Get a random number from the dataset
         sample1 = random.sample(all_data, 1)[0]
         sample2 = random.sample(all_data, 1)[0]
@@ -179,23 +214,18 @@ if __name__ == "__main__":
     total_length = len(dataset)
     print("Total dataset length:", total_length)
 
-    # not necessary, but whatever
-    shuffle_data = random.sample(dataset, total_length)
-
     train_length = int(0.8*total_length)
     val_length = int(0.1*total_length)
 
-    train_data = shuffle_data[:train_length]
-    val_data = shuffle_data[train_length:train_length+val_length]
-    test_data = shuffle_data[train_length+val_length:]
+    train_data = dataset[:train_length]
+    val_data = dataset[train_length:train_length+val_length]
+    test_data = dataset[train_length+val_length:]
 
     print("Training set length:", len(train_data))
     print("Val set length:", len(val_data))
     print("Test set length:", len(test_data))
 
     # Create splits
-    create_split(train_data, split="train", save_dir="/data/users/jmorales/svhn_multi_number", num_workers=36)
-
-    create_split(test_data, split="test", save_dir="/data/users/jmorales/svhn_multi_number", num_workers=36)
-
-    create_split(val_data, split="val", save_dir="/data/users/jmorales/svhn_multi_number", num_workers=36)
+    create_split(train_data, split="train", save_dir=args.save_dir, img_size=args.img_size, bbox_size=args.bbox_size, num_workers=args.num_workers)
+    create_split(test_data, split="test", save_dir=args.save_dir, img_size=args.img_size, bbox_size=args.bbox_size, num_workers=args.num_workers)
+    create_split(val_data, split="val", save_dir=args.save_dir, img_size=args.img_size, bbox_size=args.bbox_size, num_workers=args.num_workers)

@@ -1,12 +1,5 @@
-import torch
-from torchvision.transforms.v2 import (
-    GaussianBlur,
-    RandomChoice,
-    Identity
-)
 from transformers import ViTImageProcessor, BatchEncoding
-from collections import defaultdict
-from typing import List, Optional
+from typing import List
 from dataclasses import dataclass
 
 

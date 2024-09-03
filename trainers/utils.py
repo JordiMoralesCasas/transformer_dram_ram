@@ -114,7 +114,7 @@ class AccScorer:
         return acc
     
 
-class AreaScorer: # TODO: Change name? 
+class AreaScorer:
     """
     For each glimpse, get the proportion of pixels that are not white
     """
@@ -179,7 +179,7 @@ def img2array(data_path, desired_size=None, expand=False, view=False):
 
 def array2img(x):
     """
-    Util function for converting anumpy array to a PIL img.
+    Util function for converting a numpy array to a PIL img.
 
     Returns PIL RGB img.
     """

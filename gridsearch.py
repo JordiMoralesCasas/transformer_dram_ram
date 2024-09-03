@@ -5,15 +5,20 @@ import data.data_loaders as data_loaders
 
 from trainers.trainer_mnist import MNISTTrainer
 from trainers.trainer_svhn import SVHNTrainer
+from trainers.trainer_multinumber import MultiNumberTrainer
 from config import get_config
 
 import wandb
 import pprint
 
+# WandB config
+PROJECT = None
+ENTITY = None
+
 
 def main():
     # Init WanDB
-    wandb.init(project="svhn_zoom", entity="mcv_jordi")
+    wandb.init(project=PROJECT, entity=ENTITY)
 
     # Get config from gridsearch
     config, unparsed = get_config()
@@ -52,9 +57,9 @@ def main():
         )
         # Initialize Trainer for MNIST Dataset
         trainer = MNISTTrainer(config, train_loader=train_dloader, test_loader=test_dloader, is_gridsearch=True)
-    else:
+        
+    elif config.task == "svhn":
         # Load SVHN
-        config.data_dir = "/data/users/jmorales/svhn/"
         train_dloader = None
         if config.is_train:
             train_dloader = data_loaders.get_train_valid_loader_svhn(
@@ -70,15 +75,52 @@ def main():
         )
         # Initialize Trainer for SVHN Dataset
         trainer = SVHNTrainer(config, train_loader=train_dloader, test_loader=test_dloader, is_gridsearch=True)
+        
+    elif config.task == "multinumber":
+        # Load synthetic MultiNumber dataset on SVHN
+        train_loader, val_loader = None, None
+        if config.is_train:
+            train_loader = data_loaders.get_loader_multinumber(
+                config.data_dir,
+                "train",
+                config.batch_size,
+                config.end_class,
+                config.separator_class,
+                debug_run=config.debug_run,
+                use_encoder=config.use_encoder,
+                snapshot=config.snapshot,
+                **kwargs,
+            )
+            val_loader = data_loaders.get_loader_multinumber(
+                config.data_dir,
+                "val",
+                config.batch_size,
+                config.end_class,
+                config.separator_class,
+                debug_run=config.debug_run,
+                use_encoder=config.use_encoder,
+                snapshot=config.snapshot,
+                **kwargs,
+            )
+        test_dloader = data_loaders.get_loader_multinumber(
+                config.data_dir,
+                "test",
+                config.batch_size,
+                config.end_class,
+                config.separator_class,
+                debug_run=config.debug_run,
+                use_encoder=config.use_encoder,
+                snapshot=config.snapshot,
+                **kwargs,
+            )
+            
+        # Initialize Trainer for SVHN Dataset
+        trainer = MultiNumberTrainer(config, train_loader=train_loader, val_loader=val_loader, test_loader=test_dloader)
 
-    # either train
-    if config.is_train:
-        utils.save_config(config)
-        trainer.train()
-        trainer.test()
-    # or load a pretrained model and test
-    else:
-        trainer.test()
+    # Start training
+    utils.save_config(config)
+    trainer.train()
+    trainer.test()
 
 
 if __name__ == "__main__":
@@ -87,53 +129,17 @@ if __name__ == "__main__":
     # WanDB login
     wandb.login()
     
-    # Hyperparameter search config
+    # Hyperparameter search config   
     sweep_config = {
-        'name': 'MNIST GPT2',
+        'name': 'Transformer GTrXL SVHN',
         'method': 'random',
         'metric': {
-            'name': 'Test Accuracy',
+            'name': 'Test Reward',
             'goal': 'maximize'   
             },
         'parameters':  {
-            'core_type': {
-                'value': "transformer"},
             'transformer_model': {
-                'value': "gpt2"},
-            'task': {
-                'value': "mnist"},
-            'epochs': {
-                'value': 50},
-            'batch_size': {
-                'value': 512},
-            'hidden_size': {
-                'value': 256},
-            'preprocess': {
-                'value': True},
-            'num_glimpses': {
-                'value': 6},
-            'weight_decay': {
-                'values': [0.0, 0.01, 0.9]},
-            'std': {
-                'values': [0.01, 0.03, 0.05]},
-            'patch_size': {
-                'value': 8},
-            'init_lr': {
-                'values': [
-                    0.00005, 0.0001, 0.0003, 0.0005, 0.001
-                    ]}
-            } 
-        }
-    
-    
-    """sweep_config = {
-        'name': 'Transformer TrXL SVHN 2nd Sweep',
-        'method': 'random',
-        'metric': {
-            'name': 'Test Reward',
-            'goal': 'maximize'   
-            },
-        'parameters':  {
+                'value': "gtrxl"},
             'core_type': {
                 'value': "transformer"},
             'epochs': {
@@ -171,67 +177,11 @@ if __name__ == "__main__":
                     1,
                     ]}
         } 
-    }"""
-
-    """sweep_config = {
-        'name': 'Transformer GPT2 SVHN 2nd Sweep',
-        'method': 'random',
-        'metric': {
-            'name': 'Test Reward',
-            'goal': 'maximize'   
-            },
-        'parameters':  {
-            'core_type': {
-                'value': "transformer"},
-            'epochs': {
-                'value': 5},
-            'batch_size': {
-                'value': 128},
-            'cell_size': {
-                'value': 512},
-            'hidden_size': {
-                'value': 1024},
-            'preprocess': {
-                'value': True},
-            'num_glimpses': {
-                'value': 3},
-            'optimizer': {
-                'value': "adamw"},
-            'weight_decay': {
-                'values': [0.01, 0.001, 0]},
-            'std': {
-                'values': [0.01, 0.03, 0.05]},
-            'momentum': {
-                'value': 0.0}, # Not used
-            'patch_size': {
-                'value': 28},
-            'init_lr': {
-                'values': [
-                    0.00002, 0.00001, 0.000005, 0.000001,
-                    ]}, 
-            'inner_size': {
-                'values': [
-                    1024,
-                    ]},
-            'n_heads': {
-                'values': [
-                    1,
-                    ]}
-        } 
-    }"""
+    }    
     
-    
-    
+    # Print gridsearch info
     pprint.pprint(sweep_config)
-
-    sweep_id = wandb.sweep(sweep_config, project="mnist_zoom", entity="mcv_jordi")
+    
+    # Start gridsearch
+    sweep_id = wandb.sweep(sweep_config, project=PROJECT, entity=ENTITY)
     wandb.agent(sweep_id, function=main, count=35)
-
-    """
-    import multiprocessing
-    def call_agent(id):
-        wandb.agent(id, function=main, count=2)
-
-    pool_obj = multiprocessing.Pool(2)
-    pool_obj.map()
-    """

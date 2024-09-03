@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch
 
 import modelling.modules as modules
-from torchvision.models import resnet18, resnet50, resnet34
+from torchvision.models import resnet18, resnet50
 
 """
  Based on https://github.com/kevinzakka/recurrent-visual-attention/blob/master/model.py
@@ -15,6 +15,9 @@ class RecurrentAttention(nn.Module):
     within the image one at a time, and incrementally
     combining information from these fixations to build
     up a dynamic internal representation of the image.
+    
+    We introduce a modified version using Transformer as 
+    the core instead a RNN.
 
     References:
       [1]: Minh et. al., https://arxiv.org/abs/1406.6247
@@ -26,18 +29,17 @@ class RecurrentAttention(nn.Module):
         """Constructor.
 
         Args:
-          g: size of the square patches in the glimpses extracted by the retina.
-          k: number of patches to extract per glimpse.
-          s: scaling factor that controls the size of successive patches.
-          c: number of channels in each image.
-          h_g: hidden layer size of the fc layer for `phi`.
-          h_l: hidden layer size of the fc layer for `l`.
-          std: standard deviation of the Gaussian policy.
-          hidden_size: hidden size of the rnn.
-          num_classes: number of classes in the dataset.
-          num_glimpses: number of glimpses to take per image,
-            i.e. number of BPTT steps.
-          core_type: Type of core network to use (RNN or Transformer).
+          g (int): size of the square patches in the glimpses extracted by the retina.
+          k (int): number of patches to extract per glimpse.
+          s (int): scaling factor that controls the size of successive patches.
+          c (int): number of channels in each image.
+          h_g (int): hidden layer size of the fc layer for `phi`.
+          h_l (int): hidden layer size of the fc layer for `l`.
+          std (float): standard deviation of the Gaussian policy.
+          hidden_size (int): hidden size of the rnn.
+          num_classes (int): number of classes in the dataset.
+          core_type (str): Type of core network to use (RNN or Transformer).
+          transformer_model (str): Which transformer core to use (gpt2, trxl, gtrxl or DRAMLM)
         """
         super().__init__()
 
@@ -107,40 +109,47 @@ class RecurrentAttention(nn.Module):
 
 
 class DeepRecurrentAttention(nn.Module):
-    """A Recurrent Model of Visual Attention (RAM) [1].
+    """
+    DRAM is a recurrent neural network building on the ideas
+    from RAM, that processes inputs sequentially, attending to
+    different locations within the image one at a time, and 
+    incrementally combining information from these fixations
+    to build up a dynamic internal representation of the image.
+    Differently from RAM, it is composed of two separate layers,
+    one which can actually look at the whole image to provide
+    interesting locations to look at, while the other layer
+    makes digit predictions based solely on the extracted glimpses.
+    
+    We introduce a modified version using Transformer as the core
+    instead of LSTMs.
 
-    RAM is a recurrent neural network that processes
-    inputs sequentially, attending to different locations
-    within the image one at a time, and incrementally
-    combining information from these fixations to build
-    up a dynamic internal representation of the image.
-
-    References:
-      [1]: Minh et. al., https://arxiv.org/abs/1406.6247
     """
 
     def __init__(
-        self, g, k, s, c, h_g, h_l, std, hidden_size, cell_size, inner_size, n_heads, 
+        self, g, k, s, c, std, hidden_size, cell_size, inner_size, n_heads, 
         num_classes, core_type, device, transformer_model, use_encoder, image_size,
         snapshot, resnet=18
     ):
-        """Constructor.
+        """Constructor for the DRAM model.
 
         Args:
-          g: size of the square patches in the glimpses extracted by the retina.
-          k: number of patches to extract per glimpse.
-          s: scaling factor that controls the size of successive patches.
-          c: number of channels in each image.
-          h_g: hidden layer size of the fc layer for `phi`.
-          h_l: hidden layer size of the fc layer for `l`.
-          std: standard deviation of the Gaussian policy.
-          hidden_size: hidden size of the rnn.
-          num_classes: number of classes in the dataset.
-          num_glimpses: number of glimpses to take per image,
-            i.e. number of BPTT steps.
-          core_type: Type of core network to use (RNN or Transformer).
-          device: Current device
-          transformer_model: Which transformer core to use (gpt2, trxl, gtrxl or DRAMLM)
+          g (int): size of the square patches in the glimpses extracted by the retina.
+          k (int): number of patches to extract per glimpse.
+          s (int): scaling factor that controls the size of successive patches.
+          c (int): number of channels in each image.
+          std (float): standard deviation of the Gaussian policy.
+          hidden_size (int): Size of the hidden vectors.
+          cell_size (int): Size of the LSTM cells.
+          inner_size (int): Size of the inner projections of the Transformers.
+          n_heads (int): Number of attention heads
+          num_classes (int): number of classes in the dataset.
+          core_type (str): Type of core network to use (RNN or Transformer).
+          device (str): Current device
+          transformer_model (str): Which transformer core to use (gpt2, trxl or gtrxl)
+          use_encoder (bool): Wether a Transformer encoder is used to provide context.
+          image_size (int): Size of the input images
+          snapshot (bool): Wether we are in Snapshot mode.
+          resnet (int): ResNet version to use (When applicable)
         """
         super().__init__()
 
@@ -194,7 +203,7 @@ class DeepRecurrentAttention(nn.Module):
             (batch_size, 0, self.hidden_size), device=self.device)
 
     def forward(self, x, l_t_prev, out_prev, first=False, last=False):
-        """Run RAM for one timestep on a minibatch of images.
+        """Run DRAM for one timestep on a minibatch of images.
 
         Args:
             x: a 4D Tensor of shape (B, H, W, C). The minibatch
@@ -207,8 +216,8 @@ class DeepRecurrentAttention(nn.Module):
                 (2, B, hidden_size) and (2, B, cell_size), the hidden and cell
                 states for the two layers of the network. When using the Transformer
                 core, this tuple contain two tensors of size (B, hidden_size), the
-                last hidden states of each transformers, although they are not used.
-                state vector for the previous timestep `t-1`.
+                last hidden states of each Transformer, although they are not used
+                because they are also stored in the past states/glimpses buffer.
             first: a bool indicating whether this is the first timestep.
                 If True, the network has to create the context vector for the input
                 image and use it to generate the location of the first glimpse. Also,
@@ -221,10 +230,14 @@ class DeepRecurrentAttention(nn.Module):
                 location vector for the next timestep `t+1`.
 
         Returns:
-            output: tuple with two elements. Refer to the `out_prev` argument for
-                more information.
-            mu: a 2D tensor of shape (B, 2). The mean that parametrizes
-                the Gaussian policy.
+        
+            h_t: a 2D tensor of shape (B, hidden_size). The hidden
+                state vector for the current timestep `t`.
+            h_t_1/h_t_2: a 2D tensor of shape (B, hidden_size). The hidden
+                state vector for the current timestep `t` for the classification (1)
+                or location (2) Transformers.
+            c_t: a 2D tensor of shape (B, hidden_size). The LSTM cell
+                state vector for the current timestep `t`.
             l_t: a 2D tensor of shape (B, 2). The location vector
                 containing the glimpse coordinates [x, y] for the
                 current timestep `t`.
