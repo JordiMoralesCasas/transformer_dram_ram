@@ -1,0 +1,17 @@
+anls==0.0.2
+DI_engine==0.5.1
+DI_treetensor==0.4.1
+flops_profiler==0.1.2
+h5py==3.11.0
+matplotlib==3.8.0
+numpy==1.24.3
+opencv_python==4.9.0.80
+Pillow==10.0.1
+Pillow==10.4.0
+Shapely==2.0.6
+skimage==0.0
+torch==2.1.2
+torch_summary==1.4.5
+torchvision==0.16.2
+tqdm==4.66.1
+transformers==4.36.2

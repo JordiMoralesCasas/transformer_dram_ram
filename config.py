@@ -186,9 +186,31 @@ train_arg.add_argument(
 )
 
 
+# WandB params
+wandb_arg = add_argument_group("WandB params")
+wandb_arg.add_argument(
+    "--wandb_entity",
+    type=str,
+    default=None,
+    help="Name of the WandB entity to log results into",
+)
+wandb_arg.add_argument(
+    "--wandb_project",
+    type=str,
+    default=None,
+    help="Name of the WandB project to log results into",
+)
+wandb_arg.add_argument(
+    "--wandb_name",
+    type=str,
+    default=None,
+    help="How to name the current run in WandB. Not specifying this parameters means that WandB is not used.",
+)
+
+
 # other params
 misc_arg = add_argument_group("Misc.")
-data_arg.add_argument(
+misc_arg.add_argument(
     "--debug_run",
     type=str2bool,
     default=False,
@@ -224,12 +246,7 @@ misc_arg.add_argument(
     default=None,
     help="Checkpoint from which start training.",
 )
-misc_arg.add_argument(
-    "--wandb_name",
-    type=str,
-    default=None,
-    help="How to name the current run in WandB. Not specifying this parameters means that WandB is not used.",
-)
+
 misc_arg.add_argument(
     "--resume",
     type=str2bool,

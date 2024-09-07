@@ -125,12 +125,9 @@ class MultiNumberTrainer:
 
         # configure wandb logging
         if self.use_wandb and not is_gridsearch:
-            # WANDB CONFIG
-            ENTITY = None
-            PROJECT = None
             wandb.init(
-                entity=ENTITY,
-                project=PROJECT, 
+                entity=config.wandb_entity,
+                project=config.wandb_project, 
                 name=self.wandb_name,
                 config=config)
 

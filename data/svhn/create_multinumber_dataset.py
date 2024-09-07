@@ -163,19 +163,22 @@ if __name__ == "__main__":
     arg_lists = []
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--data_dir", type=str, default="/data/users/jmorales/svhn/", help="Directory with the original SVHN dataset."
+        "--data_dir", type=str, default=None, help="Directory with the original SVHN dataset."
     )
     parser.add_argument(
-        "--save_dir", type=str, default="/data/users/jmorales/svhn_multi_number", help="Directory where the new dataset will be saved."
+        "--save_dir", type=str, default=None, help="Directory where the new dataset will be saved."
     )
     parser.add_argument(
-        "--img_size", type=int, default=224, help="Size of the dataset samples."
+        "--img_size", type=int, default=224, help="Size of the dataset samples (Square)."
     )
     parser.add_argument(
-        "--bbox_size", type=int, default=64, help="Size of the resized number's bounding box."
+        "--bbox_size", type=int, default=64, help="Size of the resized number's bounding box (Square)."
     )
     parser.add_argument(
-        "--dataset_length", type=int, default=500000, help="Length of the created dataset"
+        "--train_split_size", type=float, default=0.8, help="Portion of the whole dataset that is used for training. The remaining is divided by two to create the validation and test splits."
+    )
+    parser.add_argument(
+        "--dataset_length", type=int, default=500000, help="Length of the created dataset."
     )
     parser.add_argument(
         "--num_workers", type=int, default=32, help="Size of the pool of workers."
