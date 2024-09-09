@@ -2,9 +2,9 @@
 
 ### Implementation of the RAM [1] and DRAM [2] recurrent visual attention models, along with a modification that uses Transformers instead of RNNs/LSTMs as the core of the model.
 
-<figure align="center">
+<p align="center">
    <img src="images/model.jpg" alt="DRAM Model with Transformers" width="400">
-</figure>
+</p>
 
 <p align="center">
     <i>DRAM model with Transformers as core.</i>
