@@ -17,11 +17,11 @@ ENTITY = None
 
 
 def main():
-    # Init WanDB
-    wandb.init(project=PROJECT, entity=ENTITY)
-
     # Get config from gridsearch
     config, unparsed = get_config()
+    
+    # Init WanDB
+    wandb.init(project=config.wandb_project, entity=config.wandb_entity)
     wandb_config = wandb.config
 
     for k, v in wandb_config.items():

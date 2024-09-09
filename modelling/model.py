@@ -128,7 +128,7 @@ class DeepRecurrentAttention(nn.Module):
     def __init__(
         self, g, k, s, c, std, hidden_size, cell_size, inner_size, n_heads, 
         num_classes, core_type, device, transformer_model, use_encoder, image_size,
-        snapshot, resnet=18
+        snapshot, resnet=50
     ):
         """Constructor for the DRAM model.
 

@@ -175,7 +175,7 @@ if __name__ == "__main__":
         "--bbox_size", type=int, default=64, help="Size of the resized number's bounding box (Square)."
     )
     parser.add_argument(
-        "--train_split_size", type=float, default=0.8, help="Portion of the whole dataset that is used for training. The remaining is divided by two to create the validation and test splits."
+        "--train_split_size", type=float, default=0.8, help="Portion of the whole dataset that is used for training. The remainder is split evenly for validation and test"
     )
     parser.add_argument(
         "--dataset_length", type=int, default=500000, help="Length of the created dataset."
