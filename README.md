@@ -23,7 +23,7 @@ Additionally, we provide two extra tasks based on two synthetic datasets derived
 <img src="images/extend_background_example_224.png" alt="224x224 Background Example" width="200" height="200" style="border: 10px solid #000;">
 </p>
 
-- **SVHN with multiple numbers**: Sequences of digits per image.
+- **SVHN with multiple numbers**: The model must switch between a local and global attention to correctly identify the two numbers in the image.
 
 <p align="center">
 <img src="images/multiple_numbers_example.png" alt="Multiple Numbers Example" width="250" height="250">
