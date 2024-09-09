@@ -3,9 +3,12 @@
 ### Implementation of the RAM [1] and DRAM [2] recurrent visual attention models, along with a modification that uses Transformers instead of RNNs/LSTMs as the core of the model.
 
 <figure align="center">
-   <img src="images/model.png" alt="DRAM Model with Transformers" width="400">
-   <figcaption>DRAM model with Transformers as core.</figcaption>
+   <img src="images/model.jpg" alt="DRAM Model with Transformers" width="400">
 </figure>
+
+<p align="center">
+    <i>DRAM model with Transformers as core.</i>
+</p>
 
 This repository is part of the final Master’s thesis in the Master of Computer Vision at Universitat Autónoma de Barcelona (UAB), with the participation of the Computer Vision Center (CVC), Universitat de Barcelona (UB), Universitat Pompeu Fabra (UPF), Universitat Politècnica de Catalunya (UPC), and Universitat Oberta de Catalunya (UOC).
 
